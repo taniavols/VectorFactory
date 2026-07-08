@@ -9,9 +9,20 @@ clearGroups(placeholders);
 
 function clearGroups(parent) {
 
-    for (var i = 0; i < parent.groupItems.length; i++) {
+    for (var i = parent.groupItems.length - 1; i >= 0; i--) {
 
         var group = parent.groupItems[i];
+
+        // удалить сгенерированную Clipping Group (ART)
+        if (group.name == "ART" && group.clipped) {
+            group.remove();
+            continue;
+        }
+
+        // показать всю шаблонную Clipping Group (включая фон)
+        if (group.clipped) {
+            group.hidden = false;
+        }
 
         for (var j = group.pageItems.length - 1; j >= 0; j--) {
 

@@ -38,6 +38,84 @@ function generate() {
   for (var i = 0; i < placeholders.groupItems.length; i++) {
     var group = placeholders.groupItems[i];
 
+    // ==================================================
+    // Проверка на Clipping Group (шаблон с маской)
+    // ==================================================
+
+    var templateCG = null;
+    var generatedCG = null;
+
+    for (var cg = 0; cg < group.groupItems.length; cg++) {
+      var gItem = group.groupItems[cg];
+      if (!gItem.clipped) continue;
+      if (containsS(gItem)) {
+        templateCG = gItem;
+      } else {
+        generatedCG = gItem;
+      }
+    }
+
+    // если есть шаблонная Clipping Group — обрабатываем независимо
+    // от наличия pageItems на верхнем уровне
+    if (templateCG) {
+      // удалить предыдущую сгенерированную Clipping Group
+      if (generatedCG) {
+        generatedCG.remove();
+      }
+
+      if (sourceIsText) {
+        continue;
+      }
+
+      // найти S внутри шаблонной Clipping Group
+      var targetS = null;
+      for (var si = 0; si < templateCG.pageItems.length; si++) {
+        if (
+          templateCG.pageItems[si].name == "S" ||
+          templateCG.pageItems[si].name == "SK"
+        ) {
+          targetS = templateCG.pageItems[si];
+          break;
+        }
+      }
+
+      if (!targetS) continue;
+
+      var data = analyzeTarget(targetS);
+
+      // создать новую Clipping Group (sibling для templateCG)
+      var newCG = group.groupItems.add();
+      newCG.name = "ART";
+
+      // ART — первый объект, будет clipping mask
+      var copy = source.duplicate();
+      copy.name = "ART";
+      copy.move(newCG, ElementPlacement.PLACEATBEGINNING);
+
+      // подогнать ART под размер S
+      fit(copy, data);
+      rotate(copy, data);
+      center(copy, data);
+
+      // скопировать все pageItems из шаблонной Clipping Group, кроме S
+      for (var t = 0; t < templateCG.pageItems.length; t++) {
+        var templateItem = templateCG.pageItems[t];
+        if (templateItem.name == "S" || templateItem.name == "SK") continue;
+        var dup = templateItem.duplicate();
+        dup.move(newCG, ElementPlacement.PLACEATEND);
+      }
+
+      // сделать ART clipping mask
+      newCG.clipped = true;
+
+      if (targetS.name == "S") {
+        applyAppearance(copy, targetS);
+      }
+
+      continue;
+    }
+
+    // старая логика — только если есть pageItems на верхнем уровне
     if (group.pageItems.length == 0) continue;
 
     var target = getTarget(group);
@@ -213,6 +291,15 @@ function generate() {
   }
 }
 
+function containsS(group) {
+  for (var ci = 0; ci < group.pageItems.length; ci++) {
+    if (group.pageItems[ci].name == "S" || group.pageItems[ci].name == "SK") {
+      return true;
+    }
+  }
+  return false;
+}
+
 function replaceText(group, source) {
   replaceTextRecursive(group, source.contents);
 }
@@ -245,13 +332,27 @@ function hideTargets() {
 
   for (var i = 0; i < placeholders.groupItems.length; i++) {
     var group = placeholders.groupItems[i];
+    hideTargetsInGroup(group);
+  }
+}
 
-    if (group.pageItems.length == 0) continue;
-
-    var target = group.pageItems[0];
-
-    if (target.name == "S" || target.name == "SK") {
-      target.hidden = true;
+function hideTargetsInGroup(group) {
+  // если это Clipping Group с S/SK — скрыть всю группу
+  if (group.clipped && containsS(group)) {
+    group.hidden = true;
+    return;
+  }
+  // иначе — поиск S/SK среди прямых pageItems (старая логика)
+  for (var i = 0; i < group.pageItems.length; i++) {
+    var item = group.pageItems[i];
+    if (item.name == "S" || item.name == "SK") {
+      item.hidden = true;
+    }
+  }
+  // рекурсивный поиск внутри вложенных Clipping Groups
+  for (var i = 0; i < group.groupItems.length; i++) {
+    if (group.groupItems[i].clipped) {
+      hideTargetsInGroup(group.groupItems[i]);
     }
   }
 }
@@ -264,13 +365,27 @@ function showTargets() {
 
   for (var i = 0; i < placeholders.groupItems.length; i++) {
     var group = placeholders.groupItems[i];
+    showTargetsInGroup(group);
+  }
+}
 
-    if (group.pageItems.length == 0) continue;
-
-    var target = group.pageItems[0];
-
-    if (target.name == "S" || target.name == "SK") {
-      target.hidden = false;
+function showTargetsInGroup(group) {
+  // если это Clipping Group с S/SK — показать всю группу
+  if (group.clipped && containsS(group)) {
+    group.hidden = false;
+    return;
+  }
+  // иначе — поиск S/SK среди прямых pageItems (старая логика)
+  for (var i = 0; i < group.pageItems.length; i++) {
+    var item = group.pageItems[i];
+    if (item.name == "S" || item.name == "SK") {
+      item.hidden = false;
+    }
+  }
+  // рекурсивный поиск внутри вложенных Clipping Groups
+  for (var i = 0; i < group.groupItems.length; i++) {
+    if (group.groupItems[i].clipped) {
+      showTargetsInGroup(group.groupItems[i]);
     }
   }
 }
