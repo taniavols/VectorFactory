@@ -1,31 +1,37 @@
-<!doctype html>
+﻿<!doctype html>
 <html>
   <head>
     <meta charset="UTF-8" />
-
     <title>Vector Factory</title>
 
     <link rel="stylesheet" href="css/app.css" />
-
     <script src="lib/CSInterface-4.0.0.js"></script>
     <script src="js/app.js"></script>
   </head>
 
   <body>
     <div id="app">
+      <!-- Note: preview.png is refreshed after Set Element. -->
       <div id="previewBox">
-        <img id="preview" />
+        <img id="preview" alt="Current element preview" />
       </div>
 
-      <button id="setElement">📦 Set Element</button>
-      <button id="generate" class="primary">⚡ Generate</button>
+      <button id="setElement">Set Element</button>
+      <button id="generate" class="primary">Generate</button>
 
       <div class="row">
-        <button id="clear">🗑 Clear</button>
-        <button id="toggle">👁 S</button>
+        <button id="clear">Clear</button>
+        <button id="toggle">Hide</button>
       </div>
+
+      <hr />
+
+      <!-- Note: Prefix is added to every exported artboard filename. -->
+      <input id="prefix" type="text" placeholder="Filename Prefix" />
+      <button id="exportBtn" class="export">Export</button>
 
       <div id="status">Ready</div>
     </div>
   </body>
 </html>
+
