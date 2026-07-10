@@ -22,11 +22,11 @@ function isTemplateName(name) {
   return name == "S" || name == "SK";
 }
 
+// A generated clipping group has no template (S/SK) child.
 function findGeneratedCG(group) {
   for (var ci = 0; ci < group.groupItems.length; ci++) {
     var g = group.groupItems[ci];
     if (!g.clipped) continue;
-
     var hasTemplate = false;
     for (var pi = 0; pi < g.pageItems.length; pi++) {
       if (isTemplateName(g.pageItems[pi].name)) {
@@ -34,21 +34,25 @@ function findGeneratedCG(group) {
         break;
       }
     }
-
     if (!hasTemplate) return g;
   }
   return null;
 }
 
-// Note: the item center decides which artboard it belongs to.
-function isInArtboard(item, abRect) {
-  var b = item.visibleBounds;
+// True if the (precomputed) bounds overlap the artboard at all.
+function isInArtboard(b, abRect) {
   var cx = (b[0] + b[2]) / 2;
   var cy = (b[1] + b[3]) / 2;
   return cx >= abRect[0] && cx <= abRect[2] && cy <= abRect[1] && cy >= abRect[3];
 }
 
-// Copy item like Ctrl+F: keep the same relative place on the new scaled artboard.
+// True if the bounds are fully inside the artboard (nothing spills out).
+function isFullyInside(b, abRect) {
+  return b[0] >= abRect[0] && b[2] <= abRect[2] && b[1] <= abRect[1] && b[3] >= abRect[3];
+}
+
+// Copy an item like Ctrl+F: keep the same relative place on the new scaled
+// artboard. Duplicates into destLayer (a Layer), never into a group.
 function copyToLayer(item, destLayer, abRect, scale) {
   var sourceLeft = item.position[0];
   var sourceTop = item.position[1];
@@ -72,13 +76,11 @@ function getScaleTo25MP(width, height) {
   return Math.sqrt(TARGET_EXPORT_PIXELS / (width * height));
 }
 
-// Create a clipping mask for items that extend beyond artboard bounds.
-// Returns the clip group with mask already created.
+// Rectangle mask (first item) used to clip a layer to the artboard.
 function createClipGroup(parentLayer, width, height, groupName) {
   var clipGroup = parentLayer.groupItems.add();
-  clipGroup.name = groupName || "ARTBOARD_CLIP";
+  clipGroup.name = groupName;
 
-  // Mask rectangle must be the first item in the clipped group.
   var mask = clipGroup.pathItems.rectangle(height, 0, width, height);
   mask.name = "ARTBOARD_MASK";
   mask.filled = true;
@@ -89,14 +91,46 @@ function createClipGroup(parentLayer, width, height, groupName) {
   return clipGroup;
 }
 
-// Move items into a clipping group and apply the mask.
+// Apply the mask; remove the group if it ended up empty.
 function applyClip(clipGroup) {
   if (clipGroup.pageItems.length > 1) {
     clipGroup.clipped = true;
   } else {
-    // Not enough items for a mask, remove the group
     clipGroup.remove();
   }
+}
+
+// Copy items into the export layer. Fully-inside items are placed directly;
+// only items that extend beyond the artboard are collected into a clip group.
+function copyLayerItems(items, exportLayer, abRect, scale, exportWidth, exportHeight, clipName) {
+  if (items.length === 0) return;
+
+  var clipGroup = null;
+  var lastUnmasked = null;
+
+  for (var i = 0; i < items.length; i++) {
+    var b = items[i].bounds;
+    if (!isInArtboard(b, abRect)) continue;
+
+    var copy = copyToLayer(items[i].item, exportLayer, abRect, scale);
+
+    // Carry over group-level opacity / blending mode (set on the placeholder).
+    if (items[i].opacity !== undefined) {
+      copy.opacity = items[i].opacity;
+      copy.blendingMode = items[i].blendingMode;
+    }
+
+    if (isFullyInside(b, abRect)) {
+      if (lastUnmasked) copy.move(lastUnmasked, ElementPlacement.PLACEAFTER);
+      else copy.move(exportLayer, ElementPlacement.PLACEATBEGINNING);
+      lastUnmasked = copy;
+    } else {
+      if (!clipGroup) clipGroup = createClipGroup(exportLayer, exportWidth, exportHeight, clipName);
+      copy.move(clipGroup, ElementPlacement.PLACEATEND);
+    }
+  }
+
+  if (clipGroup) applyClip(clipGroup);
 }
 
 function exportArtboards(prefix) {
@@ -110,7 +144,6 @@ function exportArtboards(prefix) {
     if (!prefix || prefix.length === 0) prefix = "export";
   }
 
-  // Note: one EPS is created for each artboard.
   var exportFolder = Folder.selectDialog("Choose export folder");
   if (!exportFolder) return;
 
@@ -122,6 +155,49 @@ function exportArtboards(prefix) {
   for (var a = 0; a < abCount; a++) {
     abNames[a] = srcDoc.artboards[a].name;
     abRects[a] = srcDoc.artboards[a].artboardRect;
+  }
+
+  // Resolve source layers and item bounds ONCE. visibleBounds is expensive
+  // (forces ink/stroke recompute) and is constant across artboards, so caching
+  // it here avoids the N(artboards) x M(items) recomputation in the loop.
+  var bgLayer = getLayerByName(srcDoc, "BG");
+  var plLayer = getLayerByName(srcDoc, "PLACEHOLDERS");
+  var fgLayer = getLayerByName(srcDoc, "FG");
+
+  var bgItems = [];
+  if (bgLayer && !bgLayer.guideLayer) {
+    for (var bi = 0; bi < bgLayer.pageItems.length; bi++) {
+      bgItems.push({ item: bgLayer.pageItems[bi], bounds: bgLayer.pageItems[bi].visibleBounds });
+    }
+  }
+
+  var fgItems = [];
+  if (fgLayer && !fgLayer.guideLayer) {
+    for (var fi = 0; fi < fgLayer.pageItems.length; fi++) {
+      fgItems.push({ item: fgLayer.pageItems[fi], bounds: fgLayer.pageItems[fi].visibleBounds });
+    }
+  }
+
+  var plItems = [];
+  if (plLayer && !plLayer.guideLayer) {
+    for (var g = 0; g < plLayer.groupItems.length; g++) {
+      var grp = plLayer.groupItems[g];
+      // Opacity / blending mode are set on the placeholder group, so carry
+      // them over to the copied ART (or generated group).
+      var grpOpacity = grp.opacity;
+      var grpBlend = grp.blendingMode;
+      var genCG = findGeneratedCG(grp);
+      if (genCG) {
+        plItems.push({ item: genCG, bounds: genCG.visibleBounds, opacity: grpOpacity, blendingMode: grpBlend });
+        continue;
+      }
+      for (var pi = grp.pageItems.length - 1; pi >= 0; pi--) {
+        if (grp.pageItems[pi].name == "ART") {
+          plItems.push({ item: grp.pageItems[pi], bounds: grp.pageItems[pi].visibleBounds, opacity: grpOpacity, blendingMode: grpBlend });
+          break;
+        }
+      }
+    }
   }
 
   for (var a = 0; a < abCount; a++) {
@@ -136,78 +212,36 @@ function exportArtboards(prefix) {
     var safeName = sanitizeFilename(prefix + "_" + abName);
     if (safeName.length === 0) safeName = "export_" + a;
 
-    // Note: temp document artboard and all copied content are scaled to 25 MP.
     var tempDoc = app.documents.add(DocumentColorSpace.RGB, exportWidth, exportHeight);
     tempDoc.artboards[0].artboardRect = [0, exportHeight, exportWidth, 0];
-
-    // Use the first (default) layer directly - no EXPORT layer wrapper.
     var exportLayer = tempDoc.layers[0];
 
-    // Layer copy order: BG -> ART -> FG (bottom to top in Illustrator).
-    // Each layer gets its own clipping mask if needed.
+    // BG -> PLACEHOLDERS -> FG (bottom to top). A clip mask is created only
+    // for items that extend beyond the artboard; fully-inside items are
+    // placed directly.
+    copyLayerItems(bgItems, exportLayer, abRect, scale, exportWidth, exportHeight, "BG_CLIP");
+    copyLayerItems(plItems, exportLayer, abRect, scale, exportWidth, exportHeight, "ART_CLIP");
+    copyLayerItems(fgItems, exportLayer, abRect, scale, exportWidth, exportHeight, "FG_CLIP");
 
-    // BG layer: copy all items, then clip to artboard bounds.
-    var bgLayer = getLayerByName(srcDoc, "BG");
-    if (bgLayer && !bgLayer.guideLayer) {
-      var bgClipGroup = createClipGroup(exportLayer, exportWidth, exportHeight, "BG_CLIP");
-      for (var bi = 0; bi < bgLayer.pageItems.length; bi++) {
-        var copy = copyToLayer(bgLayer.pageItems[bi], exportLayer, abRect, scale);
-        copy.move(bgClipGroup, ElementPlacement.PLACEATEND);
-      }
-      applyClip(bgClipGroup);
-    }
-
-    // PLACEHOLDERS: copy generated ART or generated clipping group.
-    var plLayer = getLayerByName(srcDoc, "PLACEHOLDERS");
-    if (plLayer && !plLayer.guideLayer) {
-      var artClipGroup = createClipGroup(exportLayer, exportWidth, exportHeight, "ART_CLIP");
-      for (var g = 0; g < plLayer.groupItems.length; g++) {
-        var grp = plLayer.groupItems[g];
-        var genCG = findGeneratedCG(grp);
-        if (genCG) {
-          if (isInArtboard(genCG, abRect)) {
-            var copy = copyToLayer(genCG, exportLayer, abRect, scale);
-            copy.move(artClipGroup, ElementPlacement.PLACEATEND);
-          }
-          continue;
-        }
-
-        for (var pi = grp.pageItems.length - 1; pi >= 0; pi--) {
-          if (grp.pageItems[pi].name == "ART") {
-            if (isInArtboard(grp.pageItems[pi], abRect)) {
-              var copy = copyToLayer(grp.pageItems[pi], exportLayer, abRect, scale);
-              copy.move(artClipGroup, ElementPlacement.PLACEATEND);
-            }
-            break;
-          }
-        }
-      }
-      applyClip(artClipGroup);
-    }
-
-    // FG layer: copy items within artboard, then clip to artboard bounds.
-    var fgLayer = getLayerByName(srcDoc, "FG");
-    if (fgLayer && !fgLayer.guideLayer) {
-      var fgClipGroup = createClipGroup(exportLayer, exportWidth, exportHeight, "FG_CLIP");
-      for (var fi = 0; fi < fgLayer.pageItems.length; fi++) {
-        if (!isInArtboard(fgLayer.pageItems[fi], abRect)) continue;
-        var copy = copyToLayer(fgLayer.pageItems[fi], exportLayer, abRect, scale);
-        copy.move(fgClipGroup, ElementPlacement.PLACEATEND);
-      }
-      applyClip(fgClipGroup);
-    }
-
-    // Save EPS 10 and close temp document.
     var saveFile = new File(exportFolder.fsName + "/" + safeName + ".eps");
     var epsOptions = new EPSSaveOptions();
     epsOptions.compatibility = Compatibility.ILLUSTRATOR10;
     epsOptions.embedLinkedFiles = true;
     epsOptions.embedAllFonts = false;
-
     tempDoc.saveAs(saveFile, epsOptions);
+
+    // JPG preview with the same base name (EPS + JPG pair for Adobe Stock).
+    var previewFile = new File(exportFolder.fsName + "/" + safeName + ".jpg");
+    var jpgOptions = new ExportOptionsJPEG();
+    jpgOptions.artBoardClipping = true;
+    jpgOptions.qualitySetting = 100;
+    jpgOptions.horizontalScale = 100;
+    jpgOptions.verticalScale = 100;
+    tempDoc.exportFile(previewFile, ExportType.JPEG, jpgOptions);
+
     tempDoc.close(SaveOptions.DONOTSAVECHANGES);
-    srcDoc.activate();
   }
 
-  alert("Export complete: " + abCount + " file(s). Each artboard is scaled to 25 MP.");
+  srcDoc.activate();
+  alert("Export complete: " + abCount + " file(s). For each artboard an EPS + JPG preview pair was created, scaled to 25 MP.");
 }

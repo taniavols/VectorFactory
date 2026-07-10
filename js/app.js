@@ -4,7 +4,9 @@
     .getSystemPath(SystemPath.EXTENSION)
     .replace(/\\/g, "/");
 
-  // Note: evalScript runs JSX inside Illustrator, not inside this HTML panel.
+  var shown = true;
+
+  // Run one or more JSX files (and an optional trailing call) inside Illustrator.
   function evalJsx(files, call, done) {
     var script = "";
     files = files instanceof Array ? files : [files];
@@ -12,7 +14,6 @@
     for (var i = 0; i < files.length; i++) {
       script += '$.evalFile("' + extensionPath + "/jsx/" + files[i] + '"); ';
     }
-
     if (call) script += call;
 
     cs.evalScript(script, function (result) {
@@ -21,16 +22,13 @@
     });
   }
 
+  // Escape a string before embedding it in a JSX command string.
   function jsxString(value) {
-    // Note: escape HTML input before inserting it into a JSX command string.
     return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   }
 
-  function run(file, status, callback) {
-    evalJsx(file, "", function () {
-      document.getElementById("status").textContent = status;
-      if (callback) callback();
-    });
+  function setStatus(text) {
+    document.getElementById("status").textContent = text;
   }
 
   function setToggle(isShown) {
@@ -38,7 +36,13 @@
     document.getElementById("toggle").textContent = shown ? "Hide" : "Show";
   }
 
-  var shown = true;
+  // Run a JSX file and update the status when done.
+  function run(file, status, callback) {
+    evalJsx(file, "", function () {
+      setStatus(status);
+      if (callback) callback();
+    });
+  }
 
   window.onload = function () {
     setToggle(true);
@@ -54,12 +58,7 @@
     };
 
     document.getElementById("toggle").onclick = function () {
-      if (shown) {
-        run("VF_Hide.jsx", "Hidden");
-      } else {
-        run("VF_Show.jsx", "Shown");
-      }
-
+      run(shown ? "VF_Hide.jsx" : "VF_Show.jsx", shown ? "Hidden" : "Shown");
       setToggle(!shown);
     };
 
@@ -75,18 +74,15 @@
         ["VF_Common.jsx", "VF_Export.jsx"],
         'exportArtboards("' + jsxString(prefix) + '")',
         function (result) {
-          document.getElementById("status").textContent = result || "Exported";
-        });
+          setStatus(result || "Exported");
+        },
+      );
     };
   };
 
+  // F5 / Ctrl+R reload the panel.
   document.addEventListener("keydown", function (e) {
-    if (e.key === "F5") {
-      e.preventDefault();
-      location.reload();
-    }
-
-    if (e.ctrlKey && e.key.toLowerCase() === "r") {
+    if (e.key === "F5" || (e.ctrlKey && e.key.toLowerCase() === "r")) {
       e.preventDefault();
       location.reload();
     }
