@@ -60,7 +60,6 @@ function fillClippingTemplate(group, template, source) {
   var artGroup = group.groupItems.add();
   artGroup.name = "ART";
 
-  // Note: the first item in a clipped group becomes the Illustrator clipping mask.
   var copy = source.duplicate();
   copy.name = "ART";
   copy.move(artGroup, ElementPlacement.PLACEATBEGINNING);
@@ -73,7 +72,12 @@ function fillClippingTemplate(group, template, source) {
   }
 
   artGroup.clipped = true;
-  if (target.name === "S") copyAppearance(copy, target);
+
+  if (target.name === "S") {
+    copyAppearance(copy, target);
+  }
+
+  template.hidden = true;
 }
 
 function fillSimpleTemplate(group, source) {
@@ -187,6 +191,9 @@ function setTargetsVisible(visible) {
 
 function setTargetsVisibleInGroup(group, visible) {
   if (group.clipped && containsTarget(group)) {
+    // Once a generated ART group exists, the template is hidden permanently and
+    // only the generated art is toggled — leave the template alone.
+    if (hasGeneratedSibling(group)) return;
     group.hidden = !visible;
     return;
   }
@@ -198,6 +205,16 @@ function setTargetsVisibleInGroup(group, visible) {
   for (var j = 0; j < group.groupItems.length; j++) {
     if (group.groupItems[j].clipped) setTargetsVisibleInGroup(group.groupItems[j], visible);
   }
+}
+
+// True if `group` has a sibling group named "ART" (the generated output).
+function hasGeneratedSibling(group) {
+  var parent = group.parent;
+  if (!parent || !parent.groupItems) return false;
+  for (var i = 0; i < parent.groupItems.length; i++) {
+    if (parent.groupItems[i].name === "ART") return true;
+  }
+  return false;
 }
 
 function removeGeneratedArt(group) {
@@ -258,5 +275,4 @@ function distance(a, b) {
 function crossProduct(p0, p1, p2) {
   return (p1[0] - p0[0]) * (p2[1] - p1[1]) - (p1[1] - p0[1]) * (p2[0] - p1[0]);
 }
-
 

@@ -1,5 +1,5 @@
-﻿#target illustrator
-
+﻿//
+#target illustrator
 var TARGET_EXPORT_PIXELS = 25000000;
 
 function sanitizeFilename(name) {
@@ -43,12 +43,19 @@ function findGeneratedCG(group) {
 function isInArtboard(b, abRect) {
   var cx = (b[0] + b[2]) / 2;
   var cy = (b[1] + b[3]) / 2;
-  return cx >= abRect[0] && cx <= abRect[2] && cy <= abRect[1] && cy >= abRect[3];
+  return (
+    cx >= abRect[0] && cx <= abRect[2] && cy <= abRect[1] && cy >= abRect[3]
+  );
 }
 
 // True if the bounds are fully inside the artboard (nothing spills out).
 function isFullyInside(b, abRect) {
-  return b[0] >= abRect[0] && b[2] <= abRect[2] && b[1] <= abRect[1] && b[3] >= abRect[3];
+  return (
+    b[0] >= abRect[0] &&
+    b[2] <= abRect[2] &&
+    b[1] <= abRect[1] &&
+    b[3] >= abRect[3]
+  );
 }
 
 // Copy an item like Ctrl+F: keep the same relative place on the new scaled
@@ -63,10 +70,22 @@ function copyToLayer(item, destLayer, abRect, scale) {
   var copy = item.duplicate(destLayer, ElementPlacement.PLACEATEND);
 
   if (scale != 1) {
-    copy.resize(scale * 100, scale * 100, true, true, true, true, scale * 100, Transformation.TOPLEFT);
+    copy.resize(
+      scale * 100,
+      scale * 100,
+      true,
+      true,
+      true,
+      true,
+      scale * 100,
+      Transformation.TOPLEFT,
+    );
   }
 
-  copy.position = [relativeLeft * scale, newArtboardHeight - relativeTop * scale];
+  copy.position = [
+    relativeLeft * scale,
+    newArtboardHeight - relativeTop * scale,
+  ];
 
   return copy;
 }
@@ -102,7 +121,15 @@ function applyClip(clipGroup) {
 
 // Copy items into the export layer. Fully-inside items are placed directly;
 // only items that extend beyond the artboard are collected into a clip group.
-function copyLayerItems(items, exportLayer, abRect, scale, exportWidth, exportHeight, clipName) {
+function copyLayerItems(
+  items,
+  exportLayer,
+  abRect,
+  scale,
+  exportWidth,
+  exportHeight,
+  clipName,
+) {
   if (items.length === 0) return;
 
   var clipGroup = null;
@@ -122,10 +149,16 @@ function copyLayerItems(items, exportLayer, abRect, scale, exportWidth, exportHe
 
     if (isFullyInside(b, abRect)) {
       if (lastUnmasked) copy.move(lastUnmasked, ElementPlacement.PLACEAFTER);
-      else copy.move(exportLayer, ElementPlacement.PLACEATBEGINNING);
+      else copy.move(exportLayer, ElementPlacement.PLACEATEND);
       lastUnmasked = copy;
     } else {
-      if (!clipGroup) clipGroup = createClipGroup(exportLayer, exportWidth, exportHeight, clipName);
+      if (!clipGroup)
+        clipGroup = createClipGroup(
+          exportLayer,
+          exportWidth,
+          exportHeight,
+          clipName,
+        );
       copy.move(clipGroup, ElementPlacement.PLACEATEND);
     }
   }
@@ -167,35 +200,63 @@ function exportArtboards(prefix) {
   var bgItems = [];
   if (bgLayer && !bgLayer.guideLayer) {
     for (var bi = 0; bi < bgLayer.pageItems.length; bi++) {
-      bgItems.push({ item: bgLayer.pageItems[bi], bounds: bgLayer.pageItems[bi].visibleBounds });
+      bgItems.push({
+        item: bgLayer.pageItems[bi],
+        bounds: bgLayer.pageItems[bi].visibleBounds,
+      });
     }
   }
 
   var fgItems = [];
   if (fgLayer && !fgLayer.guideLayer) {
     for (var fi = 0; fi < fgLayer.pageItems.length; fi++) {
-      fgItems.push({ item: fgLayer.pageItems[fi], bounds: fgLayer.pageItems[fi].visibleBounds });
+      fgItems.push({
+        item: fgLayer.pageItems[fi],
+        bounds: fgLayer.pageItems[fi].visibleBounds,
+      });
     }
   }
 
   var plItems = [];
   if (plLayer && !plLayer.guideLayer) {
-    for (var g = 0; g < plLayer.groupItems.length; g++) {
-      var grp = plLayer.groupItems[g];
-      // Opacity / blending mode are set on the placeholder group, so carry
-      // them over to the copied ART (or generated group).
-      var grpOpacity = grp.opacity;
-      var grpBlend = grp.blendingMode;
-      var genCG = findGeneratedCG(grp);
-      if (genCG) {
-        plItems.push({ item: genCG, bounds: genCG.visibleBounds, opacity: grpOpacity, blendingMode: grpBlend });
-        continue;
-      }
-      for (var pi = grp.pageItems.length - 1; pi >= 0; pi--) {
-        if (grp.pageItems[pi].name == "ART") {
-          plItems.push({ item: grp.pageItems[pi], bounds: grp.pageItems[pi].visibleBounds, opacity: grpOpacity, blendingMode: grpBlend });
-          break;
+    for (var i = 0; i < plLayer.pageItems.length; i++) {
+      var item = plLayer.pageItems[i];
+
+      // Только верхний уровень
+      if (item.parent != plLayer) continue;
+
+      if (item.typename == "GroupItem") {
+        var grp = item;
+        var grpOpacity = grp.opacity;
+        var grpBlend = grp.blendingMode;
+
+        var genCG = findGeneratedCG(grp);
+        if (genCG) {
+          plItems.push({
+            item: genCG,
+            bounds: genCG.visibleBounds,
+            opacity: grpOpacity,
+            blendingMode: grpBlend,
+          });
+          continue;
         }
+
+        for (var pi = 0; pi < grp.pageItems.length; pi++) {
+          if (grp.pageItems[pi].name == "ART") {
+            plItems.push({
+              item: grp.pageItems[pi],
+              bounds: grp.pageItems[pi].visibleBounds,
+              opacity: grpOpacity,
+              blendingMode: grpBlend,
+            });
+            break;
+          }
+        }
+      } else {
+        plItems.push({
+          item: item,
+          bounds: item.visibleBounds,
+        });
       }
     }
   }
@@ -208,20 +269,68 @@ function exportArtboards(prefix) {
     var exportWidth = abWidth * scale;
     var exportHeight = abHeight * scale;
 
-    var abName = abNames[a] || ("artboard_" + a);
+    var abName = abNames[a] || "artboard_" + a;
     var safeName = sanitizeFilename(prefix + "_" + abName);
     if (safeName.length === 0) safeName = "export_" + a;
 
-    var tempDoc = app.documents.add(DocumentColorSpace.RGB, exportWidth, exportHeight);
+    var tempDoc = app.documents.add(
+      DocumentColorSpace.RGB,
+      exportWidth,
+      exportHeight,
+    );
     tempDoc.artboards[0].artboardRect = [0, exportHeight, exportWidth, 0];
     var exportLayer = tempDoc.layers[0];
 
     // BG -> PLACEHOLDERS -> FG (bottom to top). A clip mask is created only
     // for items that extend beyond the artboard; fully-inside items are
     // placed directly.
-    copyLayerItems(bgItems, exportLayer, abRect, scale, exportWidth, exportHeight, "BG_CLIP");
-    copyLayerItems(plItems, exportLayer, abRect, scale, exportWidth, exportHeight, "ART_CLIP");
-    copyLayerItems(fgItems, exportLayer, abRect, scale, exportWidth, exportHeight, "FG_CLIP");
+    copyLayerItems(
+      bgItems,
+      exportLayer,
+      abRect,
+      scale,
+      exportWidth,
+      exportHeight,
+      "BG_CLIP",
+    );
+    copyLayerItems(
+      plItems,
+      exportLayer,
+      abRect,
+      scale,
+      exportWidth,
+      exportHeight,
+      "ART_CLIP",
+    );
+    copyLayerItems(
+      fgItems,
+      exportLayer,
+      abRect,
+      scale,
+      exportWidth,
+      exportHeight,
+      "FG_CLIP",
+    );
+
+    // Подготовить временный документ к экспорту
+    tempDoc.activate();
+
+    app.selection = null;
+    app.executeMenuCommand("selectall");
+
+    // Создать кривые из текста
+    try {
+      app.executeMenuCommand("outline");
+    } catch (e) {}
+
+    // Еще раз выделить всё, потому что после outline выделение может измениться
+    app.selection = null;
+    app.executeMenuCommand("selectall");
+
+    // Преобразовать обводки в кривые
+    try {
+      app.doScript("contour", "VF");
+    } catch (e) {}
 
     var saveFile = new File(exportFolder.fsName + "/" + safeName + ".eps");
     var epsOptions = new EPSSaveOptions();
@@ -243,5 +352,9 @@ function exportArtboards(prefix) {
   }
 
   srcDoc.activate();
-  alert("Export complete: " + abCount + " file(s). For each artboard an EPS + JPG preview pair was created, scaled to 25 MP.");
+  alert(
+    "Export complete: " +
+      abCount +
+      " file(s). For each artboard an EPS + JPG preview pair was created, scaled to 25 MP.",
+  );
 }
