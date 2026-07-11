@@ -117,4 +117,30 @@ hr {
   text-align: center;
   font-size: 11px;
   color: #7fd67f;
+  max-height: 120px;
+  overflow-y: auto;
+  word-break: break-word;
+}
+
+#status.ok {
+  color: #7fd67f;
+}
+
+#status.has-error {
+  color: #ff6b6b;
+  text-align: left;
+}
+
+#status .ok {
+  color: #7fd67f;
+}
+
+#status .errlist {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  color: #ff6b6b;
+}
+
+#status .errlist li {
+  margin-bottom: 2px;
 }

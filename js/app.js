@@ -36,10 +36,52 @@
     document.getElementById("toggle").textContent = shown ? "Hide" : "Show";
   }
 
+  // Render a result string (JSON {errors, success} or plain text) into the
+  // status area as a list. Errors are shown in red, success in green.
+  function showResult(result) {
+    var statusEl = document.getElementById("status");
+    if (!result || result === "undefined") {
+      statusEl.className = "ok";
+      statusEl.innerHTML = "Done";
+      return;
+    }
+
+    var errors = [];
+    var success = "";
+    try {
+      var parsed = JSON.parse(result);
+      errors = parsed.errors || [];
+      success = parsed.success || "";
+    } catch (e) {
+      // Not JSON — just show the raw text.
+      statusEl.className = "ok";
+      statusEl.textContent = result;
+      return;
+    }
+
+    var html = "";
+    if (success) {
+      html += '<div class="ok">' + escapeHtml(success) + "</div>";
+    }
+    if (errors.length > 0) {
+      html += '<ul class="errlist">';
+      for (var i = 0; i < errors.length; i++) {
+        html += "<li>" + escapeHtml(errors[i]) + "</li>";
+      }
+      html += "</ul>";
+    }
+    statusEl.className = errors.length > 0 ? "has-error" : "ok";
+    statusEl.innerHTML = html;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
+  }
+
   // Run a JSX file and update the status when done.
   function run(file, status, callback) {
-    evalJsx(file, "", function () {
-      setStatus(status);
+    evalJsx(file, "", function (result) {
+      showResult(result);
       if (callback) callback();
     });
   }
@@ -48,13 +90,15 @@
     setToggle(true);
 
     document.getElementById("generate").onclick = function () {
-      run("VF_Generate.jsx", "Generated");
-      setToggle(false);
+      run("VF_Generate.jsx", "Generated", function () {
+        setToggle(false);
+      });
     };
 
     document.getElementById("clear").onclick = function () {
-      run("VF_Clear.jsx", "Cleared");
-      setToggle(true);
+      run("VF_Clear.jsx", "Cleared", function () {
+        setToggle(true);
+      });
     };
 
     document.getElementById("toggle").onclick = function () {
@@ -74,7 +118,7 @@
         ["VF_Common.jsx", "VF_Export.jsx"],
         'exportArtboards("' + jsxString(prefix) + '")',
         function (result) {
-          setStatus(result || "Exported");
+          showResult(result);
         },
       );
     };

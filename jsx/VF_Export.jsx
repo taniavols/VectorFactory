@@ -167,9 +167,12 @@ function copyLayerItems(
 }
 
 function exportArtboards(prefix) {
+  VF_ERRORS = [];
+  VF_SUCCESS = "";
+
   if (app.documents.length === 0) {
-    alert("No document.");
-    return;
+    vfError("No document.");
+    return vfResult();
   }
 
   if (!prefix || prefix.length === 0) {
@@ -178,7 +181,7 @@ function exportArtboards(prefix) {
   }
 
   var exportFolder = Folder.selectDialog("Choose export folder");
-  if (!exportFolder) return;
+  if (!exportFolder) return vfResult();
 
   var srcDoc = app.activeDocument;
   var abCount = srcDoc.artboards.length;
@@ -352,9 +355,10 @@ function exportArtboards(prefix) {
   }
 
   srcDoc.activate();
-  alert(
+  vfSuccess(
     "Export complete: " +
       abCount +
       " file(s). For each artboard an EPS + JPG preview pair was created, scaled to 25 MP.",
   );
+  return vfResult();
 }

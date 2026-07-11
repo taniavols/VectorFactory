@@ -5,10 +5,51 @@
 
 var TARGET_NAMES = { S: true, SK: true };
 
+// Errors collected during generate/export and returned to the panel as a list.
+var VF_ERRORS = [];
+var VF_SUCCESS = "";
+
+function vfError(msg) {
+  VF_ERRORS.push(msg);
+}
+
+function vfSuccess(msg) {
+  VF_SUCCESS = msg;
+}
+
+// ExtendScript (Illustrator) has no built-in JSON object, so we serialize
+// manually. The panel (browser) parses this with JSON.parse, which is fine.
+function vfEscapeJson(s) {
+  return String(s)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t");
+}
+
+// Returns a JSON string: { "errors": [...], "success": "..." }.
+function vfResult() {
+  var parts = [];
+  for (var i = 0; i < VF_ERRORS.length; i++) {
+    parts.push('"' + vfEscapeJson(VF_ERRORS[i]) + '"');
+  }
+  return (
+    '{"errors":[' +
+    parts.join(",") +
+    '],"success":"' +
+    vfEscapeJson(VF_SUCCESS || "OK") +
+    '"}'
+  );
+}
+
 function generate() {
+  VF_ERRORS = [];
+  VF_SUCCESS = "";
+
   if (app.documents.length === 0) {
-    alert("No document.");
-    return;
+    vfError("No document.");
+    return vfResult();
   }
 
   var doc = app.activeDocument;
@@ -16,28 +57,39 @@ function generate() {
   var placeholdersLayer = getLayer(doc, "PLACEHOLDERS");
 
   if (!masterLayer || masterLayer.pageItems.length === 0) {
-    alert("Click Set Element first.");
-    return;
+    vfError("Click Set Element first.");
+    return vfResult();
   }
 
   if (!placeholdersLayer) {
-    alert("Layer not found: PLACEHOLDERS.");
-    return;
+    vfError("Layer not found: PLACEHOLDERS.");
+    return vfResult();
   }
 
   var source = masterLayer.pageItems[0];
 
   // Note: a text MASTER replaces text in all PLACEHOLDERS text frames.
   if (source.typename === "TextFrame") {
-    replacePlaceholderText(placeholdersLayer, source.contents);
-    return;
+    try {
+      replacePlaceholderText(placeholdersLayer, source.contents);
+      vfSuccess("Generated (text)");
+    } catch (e) {
+      vfError("Error: " + e.message);
+    }
+    return vfResult();
   }
 
-  for (var i = 0; i < placeholdersLayer.groupItems.length; i++) {
-    fillPlaceholderGroup(placeholdersLayer.groupItems[i], source);
+  try {
+    for (var i = 0; i < placeholdersLayer.groupItems.length; i++) {
+      fillPlaceholderGroup(placeholdersLayer.groupItems[i], source);
+    }
+    hideTargets();
+    vfSuccess("Generated");
+  } catch (e) {
+    vfError("Error: " + e.message);
   }
 
-  hideTargets();
+  return vfResult();
 }
 
 function fillPlaceholderGroup(group, source) {
@@ -60,24 +112,101 @@ function fillClippingTemplate(group, template, source) {
   var artGroup = group.groupItems.add();
   artGroup.name = "ART";
 
+  // 1) Копируем "подложку" шаблона (всё, кроме S/SK) — вниз группы.
+  for (var i = 0; i < template.pageItems.length; i++) {
+    var item = template.pageItems[i];
+
+    if (isTarget(item)) continue;
+
+    item.duplicate().move(artGroup, ElementPlacement.PLACEATEND);
+  }
+
+  // 2) Источник становится маской ПОВЕРХ подложки (как при
+  //    "Создать обтравочную маску": фигура-маска — самая верхняя).
   var copy = source.duplicate();
   copy.name = "ART";
   copy.move(artGroup, ElementPlacement.PLACEATBEGINNING);
+
+// Если источник — группа, создаём из её копии Compound Path
+// только для использования как clipping mask.
+if (copy.typename === "GroupItem") {
+    app.selection = null;
+    copy.selected = true;
+
+    try {
+        app.executeMenuCommand("group");
+        app.executeMenuCommand("compoundPath");
+        copy = app.selection[0];
+        copy.name = "ART";
+    } catch (e) {}
+}
+
   fitToTarget(copy, target);
 
-  for (var i = 0; i < template.pageItems.length; i++) {
-    if (!isTarget(template.pageItems[i])) {
-      template.pageItems[i].duplicate().move(artGroup, ElementPlacement.PLACEATEND);
-    }
-  }
+  if (target.name === "S") copyAppearance(copy, target);
 
-  artGroup.clipped = true;
+  // 3) Создаём обтравочную маску.
+  //    - group.clipped = true падает для составного контура
+  //      ("top item must be a path item");
+  //    - item.clipping = true на CompoundPathItem внутри обычной группы не
+  //      всегда отсекает соседние объекты.
+  //    Нативная команда makeMask (аналог "Создать обтравочную маску")
+  //    корректно работает и с PathItem, и с CompoundPathItem — берёт
+  //    самый верхний выделенный объект маской.
+  makeClippingMask(artGroup, copy);
 
-  if (target.name === "S") {
-    copyAppearance(copy, target);
-  }
-
+  // Скрываем шаблон, чтобы экспортировалась только генерация
   template.hidden = true;
+}
+
+// Упрощает маску: убирает лишние опорные точки, чтобы составной контур
+// перестал считаться "слишком сложным" для обтравочной маски (иначе
+// Illustrator показывает предупреждение и блокирует скрипт).
+function simplifyMask(mask) {
+  try {
+    if (mask.typename === "CompoundPathItem") {
+      for (var i = 0; i < mask.pathItems.length; i++) {
+        mask.pathItems[i].removeUnnecessaryPoints();
+      }
+    } else if (mask.typename === "PathItem") {
+      mask.removeUnnecessaryPoints();
+    }
+  } catch (e) {}
+}
+
+// Делает mask (верхний объект artGroup) обтравочной маской для остальных
+// объектов группы. Использует нативную команду Illustrator "makeMask";
+// при сбое — откат на свойства clipping/clipped.
+function makeClippingMask(artGroup, mask) {
+  // Упрощаем геометрию маски, чтобы избежать предупреждения о сложности.
+  simplifyMask(mask);
+
+  // Подавляем диалог подтверждения "объект очень сложен…" на время команды.
+  var prevLevel = app.userInteractionLevel;
+  app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS;
+
+  try {
+    mask.selected = true;
+    for (var i = 0; i < artGroup.pageItems.length; i++) {
+      if (artGroup.pageItems[i] !== mask) artGroup.pageItems[i].selected = true;
+    }
+    app.executeMenuCommand("makeMask");
+    app.selection = null;
+    return;
+  } catch (e) {
+    app.selection = null;
+  } finally {
+    app.userInteractionLevel = prevLevel;
+  }
+
+  // Fallback: свойства clipping/clipped.
+  if (mask.typename === "CompoundPathItem") {
+    mask.filled = false;
+    mask.stroked = false;
+    mask.clipping = true;
+  } else {
+    artGroup.clipped = true;
+  }
 }
 
 function fillSimpleTemplate(group, source) {
@@ -101,21 +230,43 @@ function fitToTarget(item, target) {
 }
 
 function analyzeTarget(target) {
-  var p0 = target.pathPoints[0].anchor;
-  var p1 = target.pathPoints[1].anchor;
-  var p2 = target.pathPoints[2].anchor;
-  var p3 = target.pathPoints[3].anchor;
-  var d01 = distance(p0, p1);
-  var d12 = distance(p1, p2);
-  var horizontal = d01 >= d12;
+  // Default to bounds-based size/center, which works for BOTH PathItem and
+  // CompoundPathItem. pathPoints only exists on PathItem, so the precise
+  // angle/mirror detection below is guarded and skipped for compound paths
+  // (otherwise target.pathPoints is undefined and the script throws).
+  var bounds = target.geometricBounds; // [left, top, right, bottom]
+  var left = bounds[0], top = bounds[1], right = bounds[2], bottom = bounds[3];
+  var width = right - left;
+  var height = top - bottom;
+  var centerX = (left + right) / 2;
+  var centerY = (top + bottom) / 2;
+  var angle = 0;
+  var mirrored = false;
+
+  if (target.typename === "PathItem" && target.pathPoints.length >= 4) {
+    var p0 = target.pathPoints[0].anchor;
+    var p1 = target.pathPoints[1].anchor;
+    var p2 = target.pathPoints[2].anchor;
+    var p3 = target.pathPoints[3].anchor;
+    var d01 = distance(p0, p1);
+    var d12 = distance(p1, p2);
+    var horizontal = d01 >= d12;
+
+    width = horizontal ? d01 : d12;
+    height = horizontal ? d12 : d01;
+    centerX = (p0[0] + p1[0] + p2[0] + p3[0]) / 4;
+    centerY = (p0[1] + p1[1] + p2[1] + p3[1]) / 4;
+    angle = (Math.atan2(p1[1] - p0[1], p1[0] - p0[0]) * 180) / Math.PI + 180;
+    mirrored = crossProduct(p0, p1, p2) > 0;
+  }
 
   return {
-    width: horizontal ? d01 : d12,
-    height: horizontal ? d12 : d01,
-    centerX: (p0[0] + p1[0] + p2[0] + p3[0]) / 4,
-    centerY: (p0[1] + p1[1] + p2[1] + p3[1]) / 4,
-    angle: (Math.atan2(p1[1] - p0[1], p1[0] - p0[0]) * 180) / Math.PI + 180,
-    mirrored: crossProduct(p0, p1, p2) > 0
+    width: width,
+    height: height,
+    centerX: centerX,
+    centerY: centerY,
+    angle: angle,
+    mirrored: mirrored
   };
 }
 
@@ -136,9 +287,13 @@ function rotateToTarget(item, data) {
 }
 
 function centerOnTarget(item, data) {
-  var x = item.position[0] + item.width / 2;
-  var y = item.position[1] - item.height / 2;
-  item.translate(data.centerX - x, data.centerY - y);
+  // Use geometricBounds, which exists on BOTH PathItem and CompoundPathItem.
+  // item.width / item.height are undefined on CompoundPathItem and produce
+  // NaN, which breaks placement when the source is a compound path.
+  var b = item.geometricBounds; // [left, top, right, bottom]
+  var cx = (b[0] + b[2]) / 2;
+  var cy = (b[1] + b[3]) / 2;
+  item.translate(data.centerX - cx, data.centerY - cy);
 }
 
 function copyAppearance(item, target) {
@@ -228,6 +383,12 @@ function removeGeneratedArt(group) {
   for (var j = group.pageItems.length - 1; j >= 0; j--) {
     if (group.pageItems[j].name === "ART") group.pageItems[j].remove();
   }
+  for (var k = 0; k < group.groupItems.length; k++) {
+  var g = group.groupItems[k];
+  if (g.clipped && containsTarget(g)) {
+    g.hidden = false;
+  }
+}
 }
 
 function findClippingTemplate(group) {
