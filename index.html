@@ -27,8 +27,29 @@
 
       <input id="prefix" type="text" placeholder="Filename Prefix" />
       <button id="exportBtn" class="export">Export</button>
+      <button id="exportSelectedBtn" class="export secondary">
+        Export Selected
+      </button>
 
       <div id="status">Ready</div>
+    </div>
+
+    <!-- Export Selected: choose which artboards to export -->
+    <div id="abOverlay" class="overlay hidden">
+      <div class="modal">
+        <div class="modal-title">Export Selected Artboards</div>
+        <div id="abList" class="ab-list"></div>
+        <div class="modal-row">
+          <button id="abSelectAll" class="secondary small">Select All</button>
+          <button id="abDeselectAll" class="secondary small">
+            Deselect All
+          </button>
+        </div>
+        <div class="modal-actions">
+          <button id="abCancel" class="secondary">Cancel</button>
+          <button id="abExport" class="primary">Export</button>
+        </div>
+      </div>
     </div>
   </body>
 </html>

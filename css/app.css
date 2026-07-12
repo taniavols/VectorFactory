@@ -144,3 +144,101 @@ hr {
 #status .errlist li {
   margin-bottom: 2px;
 }
+
+/* Export Selected modal */
+.export.secondary {
+  background: #4d4d4d;
+  margin-top: 6px;
+}
+
+.export.secondary:hover {
+  background: #5a5a5a;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.overlay.hidden {
+  display: none;
+}
+
+.modal {
+  width: 220px;
+  max-height: 80%;
+  background: #3a3a3a;
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #fff;
+}
+
+.ab-list {
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+.ab-list label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px;
+  cursor: pointer;
+  color: #ddd;
+}
+
+.ab-list label:hover {
+  background: #454545;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.modal-actions button {
+  flex: 1;
+}
+
+.modal-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.modal-row .small {
+  flex: 1;
+  height: 26px;
+  font-size: 11px;
+}
+
+.modal-actions .primary {
+  background: #1473e6;
+}
+
+.modal-actions .primary:hover {
+  background: #2584f5;
+}
+
+.modal-actions .secondary {
+  background: #4d4d4d;
+}
+
+.modal-actions .secondary:hover {
+  background: #5a5a5a;
+}

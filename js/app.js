@@ -122,7 +122,87 @@
         },
       );
     };
+
+    document.getElementById("exportSelectedBtn").onclick = function () {
+      // Fetch the list of artboard names from Illustrator, then show the
+      // selection modal so the user can choose which to export.
+      evalJsx(
+        ["VF_Common.jsx", "VF_Export.jsx"],
+        "getArtboardNames()",
+        function (result) {
+          var names = [];
+          try {
+            names = JSON.parse(result);
+          } catch (e) {
+            names = [];
+          }
+          if (!names || names.length === 0) {
+            setStatus("No artboards to export.");
+            return;
+          }
+          openArtboardSelector(names);
+        },
+      );
+    };
+
+    document.getElementById("abCancel").onclick = function () {
+      document.getElementById("abOverlay").classList.add("hidden");
+    };
+
+    document.getElementById("abSelectAll").onclick = function () {
+      var boxes = document.querySelectorAll("#abList input[type=checkbox]");
+      for (var i = 0; i < boxes.length; i++) boxes[i].checked = true;
+    };
+
+    document.getElementById("abDeselectAll").onclick = function () {
+      var boxes = document.querySelectorAll("#abList input[type=checkbox]");
+      for (var i = 0; i < boxes.length; i++) boxes[i].checked = false;
+    };
+
+    document.getElementById("abExport").onclick = function () {
+      var overlay = document.getElementById("abOverlay");
+      var checked = overlay.querySelectorAll("#abList input:checked");
+      if (checked.length === 0) {
+        overlay.classList.add("hidden");
+        return;
+      }
+      var indices = [];
+      for (var i = 0; i < checked.length; i++) {
+        indices.push(parseInt(checked[i].value, 10));
+      }
+      overlay.classList.add("hidden");
+
+      var prefix = document.getElementById("prefix").value || "";
+      evalJsx(
+        ["VF_Common.jsx", "VF_Export.jsx"],
+        'exportArtboards("' +
+          jsxString(prefix) +
+          '",[' +
+          indices.join(",") +
+          "])",
+        function (result) {
+          showResult(result);
+        },
+      );
+    };
   };
+
+  // Build and show the artboard selection modal.
+  function openArtboardSelector(names) {
+    var list = document.getElementById("abList");
+    list.innerHTML = "";
+    for (var i = 0; i < names.length; i++) {
+      var label = document.createElement("label");
+      var cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.value = String(i);
+      cb.checked = true;
+      label.appendChild(cb);
+      label.appendChild(document.createTextNode(names[i] || "artboard_" + i));
+      list.appendChild(label);
+    }
+    document.getElementById("abOverlay").classList.remove("hidden");
+  }
 
   // F5 / Ctrl+R reload the panel.
   document.addEventListener("keydown", function (e) {

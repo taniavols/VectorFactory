@@ -193,7 +193,18 @@ function copyLayerItems(
   }
 }
 
-function exportArtboards(prefix) {
+// Returns a JSON array of artboard names (used by the "Export Selected" UI).
+function getArtboardNames() {
+  if (app.documents.length === 0) return "[]";
+  var doc = app.activeDocument;
+  var parts = [];
+  for (var a = 0; a < doc.artboards.length; a++) {
+    parts.push('"' + vfEscapeJson(doc.artboards[a].name) + '"');
+  }
+  return "[" + parts.join(",") + "]";
+}
+
+function exportArtboards(prefix, selectedIndices) {
   VF_ERRORS = [];
   VF_SUCCESS = "";
 
@@ -293,7 +304,19 @@ function exportArtboards(prefix) {
     }
   }
 
-  for (var a = 0; a < abCount; a++) {
+  // Which artboards to export: a caller-supplied subset, or all by default.
+  var indices = [];
+  if (selectedIndices && selectedIndices.length > 0) {
+    for (var si = 0; si < selectedIndices.length; si++) {
+      var sidx = selectedIndices[si];
+      if (sidx >= 0 && sidx < abCount) indices.push(sidx);
+    }
+  } else {
+    for (var ai = 0; ai < abCount; ai++) indices.push(ai);
+  }
+
+  for (var li2 = 0; li2 < indices.length; li2++) {
+    var a = indices[li2];
     var abRect = abRects[a];
     var abWidth = abRect[2] - abRect[0];
     var abHeight = abRect[1] - abRect[3];
@@ -381,8 +404,10 @@ function exportArtboards(prefix) {
   srcDoc.activate();
   vfSuccess(
     "Export complete: " +
-      abCount +
-      " file(s). For each artboard an EPS + JPG preview pair was created, scaled to 25 MP.",
+      indices.length +
+      " file(s)" +
+      (indices.length === abCount ? "" : " (of " + abCount + ")") +
+      ". For each artboard an EPS + JPG preview pair was created, scaled to 25 MP.",
   );
   return vfResult();
 }
