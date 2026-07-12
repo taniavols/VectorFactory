@@ -11,7 +11,8 @@ function clearGroups(parent) {
   for (var i = parent.groupItems.length - 1; i >= 0; i--) {
     var group = parent.groupItems[i];
 
-    // Note: ART is generated content; S/SK are templates and must stay.
+    // Note: ART is generated content; S/SK (and numbered S1/SK3) are
+    // templates and must stay.
     if (group.name == "ART" && group.clipped) {
       group.remove();
       continue;
@@ -27,7 +28,8 @@ function clearGroups(parent) {
         continue;
       }
 
-      if (item.name == "S" || item.name == "SK") {
+      // Un-hide any template target (S, SK, S1, SK2, S3, ...).
+      if (/^S(K)?\d*$/.test(item.name)) {
         item.hidden = false;
       }
     }

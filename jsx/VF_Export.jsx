@@ -19,7 +19,7 @@ function getLayerByName(doc, name) {
 }
 
 function isTemplateName(name) {
-  return name == "S" || name == "SK";
+  return /^S(K)?\d*$/.test(name);
 }
 
 // A generated clipping group has no template (S/SK) child.

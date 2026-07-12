@@ -3,7 +3,27 @@
 // Vector Factory common functions for Generate / Hide / Show.
 // Note: S copies placeholder appearance; SK keeps the original artwork appearance.
 
-var TARGET_NAMES = { S: true, SK: true };
+// Target names: S, SK, S1, SK2, ... (number = which MASTER to use; default 1).
+// MASTER names: MASTER, MASTER1, MASTER3, ... (number = which master).
+function isTargetName(name) {
+  return /^S(K)?\d*$/.test(name);
+}
+
+function getTargetNumber(name) {
+  var m = name.match(/\d+$/);
+  return m ? parseInt(m[0], 10) : 1;
+}
+
+// S (not SK) copies placeholder appearance; SK keeps original.
+function isCopyAppearance(name) {
+  return /^S\d*$/.test(name);
+}
+
+function getMasterNumber(name) {
+  if (name === "MASTER") return 1;
+  var m = name.match(/^MASTER(\d+)$/);
+  return m ? parseInt(m[1], 10) : 0;
+}
 
 // Errors collected during generate/export and returned to the panel as a list.
 var VF_ERRORS = [];
@@ -66,12 +86,19 @@ function generate() {
     return vfResult();
   }
 
-  var source = masterLayer.pageItems[0];
+  // Build a map: MASTER number -> source item. MASTER/MASTER1 -> 1, MASTER3 -> 3.
+  var masterByNumber = {};
+  for (var mi = 0; mi < masterLayer.pageItems.length; mi++) {
+    var m = masterLayer.pageItems[mi];
+    var num = getMasterNumber(m.name);
+    if (num > 0) masterByNumber[num] = m;
+  }
 
-  // Note: a text MASTER replaces text in all PLACEHOLDERS text frames.
-  if (source.typename === "TextFrame") {
+  // Note: a text MASTER (the first item) replaces text in all PLACEHOLDERS
+  // text frames — original single-text-master behavior is preserved exactly.
+  if (masterLayer.pageItems[0].typename === "TextFrame") {
     try {
-      replacePlaceholderText(placeholdersLayer, source.contents);
+      replacePlaceholderText(placeholdersLayer, masterLayer.pageItems[0].contents);
       vfSuccess("Generated (text)");
     } catch (e) {
       vfError("Error: " + e.message);
@@ -81,7 +108,7 @@ function generate() {
 
   try {
     for (var i = 0; i < placeholdersLayer.groupItems.length; i++) {
-      fillPlaceholderGroup(placeholdersLayer.groupItems[i], source);
+      fillPlaceholderGroup(placeholdersLayer.groupItems[i], masterByNumber);
     }
     hideTargets();
     vfSuccess("Generated");
@@ -92,22 +119,27 @@ function generate() {
   return vfResult();
 }
 
-function fillPlaceholderGroup(group, source) {
+function fillPlaceholderGroup(group, masterByNumber) {
   var clippingTemplate = findClippingTemplate(group);
 
   if (clippingTemplate) {
-    fillClippingTemplate(group, clippingTemplate, source);
+    fillClippingTemplate(group, clippingTemplate, masterByNumber);
     return;
   }
 
-  fillSimpleTemplate(group, source);
+  fillSimpleTemplate(group, masterByNumber);
 }
 
-function fillClippingTemplate(group, template, source) {
+function fillClippingTemplate(group, template, masterByNumber) {
   removeGeneratedArt(group);
 
   var target = findTarget(template);
   if (!target) return;
+
+  // Resolve which MASTER to use from the target number (S3/SK3 -> 3, S/SK -> 1).
+  // If no matching MASTER exists, skip this placeholder silently.
+  var source = masterByNumber[getTargetNumber(target.name)];
+  if (!source) return;
 
   var artGroup = group.groupItems.add();
   artGroup.name = "ART";
@@ -143,7 +175,7 @@ if (copy.typename === "GroupItem") {
 
   fitToTarget(copy, target);
 
-  if (target.name === "S") copyAppearance(copy, target);
+  if (isCopyAppearance(target.name)) copyAppearance(copy, target);
 
   // 3) Создаём обтравочную маску.
   //    - group.clipped = true падает для составного контура
@@ -209,9 +241,13 @@ function makeClippingMask(artGroup, mask) {
   }
 }
 
-function fillSimpleTemplate(group, source) {
+function fillSimpleTemplate(group, masterByNumber) {
   var target = findTarget(group);
   if (!target) return;
+
+  // Resolve MASTER by target number; skip silently if no matching MASTER.
+  var source = masterByNumber[getTargetNumber(target.name)];
+  if (!source) return;
 
   removeGeneratedArt(group);
 
@@ -219,7 +255,7 @@ function fillSimpleTemplate(group, source) {
   copy.name = "ART";
   fitToTarget(copy, target);
 
-  if (target.name === "S") copyAppearance(copy, target);
+  if (isCopyAppearance(target.name)) copyAppearance(copy, target);
 }
 
 function fitToTarget(item, target) {
@@ -412,7 +448,7 @@ function containsTarget(container) {
 }
 
 function isTarget(item) {
-  return item && TARGET_NAMES[item.name] === true;
+  return item && isTargetName(item.name);
 }
 
 function replacePlaceholderText(container, text) {

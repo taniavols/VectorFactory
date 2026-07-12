@@ -4,18 +4,35 @@ if (app.documents.length === 0) exit();
 
 var doc = app.activeDocument;
 
-if (doc.selection.length != 1) {
-  alert("Select one object.");
+if (doc.selection.length < 1) {
+  alert("Select one or more objects.");
   exit();
 }
 
-var source = doc.selection[0];
 var artwork = getRequiredLayer("ARTWORK");
 var masterLayer = getOrCreateLayer("MASTER");
 
-// MASTER holds the single current source object for S/SK placeholders.
+// MASTER holds the current source object(s) for S/SK placeholders.
+// Multiple selected objects are sorted left-to-right by their X coordinate
+// (selection order is ignored) and named MASTER1, MASTER2, ... so that
+// MASTER1 maps to S1/SK1, MASTER2 to S2/SK2, etc.
 moveAllItems(masterLayer, artwork);
-source.move(masterLayer, ElementPlacement.PLACEATEND);
+
+// Collect selected items, sort by X (left edge of geometric bounds).
+var sel = [];
+for (var s = 0; s < doc.selection.length; s++) {
+  sel.push(doc.selection[s]);
+}
+sel.sort(function (a, b) {
+  return a.geometricBounds[0] - b.geometricBounds[0];
+});
+
+for (var n = 0; n < sel.length; n++) {
+  var item = sel[n];
+  item.move(masterLayer, ElementPlacement.PLACEATEND);
+  // First object keeps the plain "MASTER" name (== MASTER1) for compatibility.
+  item.name = n === 0 ? "MASTER" : "MASTER" + (n + 1);
+}
 masterLayer.zOrder(ZOrderMethod.BRINGTOFRONT);
 
 // Capture only MASTER, then restore layer visibility.
@@ -32,7 +49,18 @@ options.resolution = 150;
 options.transparency = true;
 options.antiAliasing = true;
 
-doc.imageCapture(file, source.visibleBounds, options);
+// Capture the union of all MASTER objects.
+var captureBounds = masterLayer.pageItems[0].visibleBounds;
+for (var c = 1; c < masterLayer.pageItems.length; c++) {
+  var b = masterLayer.pageItems[c].visibleBounds;
+  captureBounds = [
+    Math.min(captureBounds[0], b[0]),
+    Math.max(captureBounds[1], b[1]),
+    Math.max(captureBounds[2], b[2]),
+    Math.min(captureBounds[3], b[3]),
+  ];
+}
+doc.imageCapture(file, captureBounds, options);
 
 for (var i = 0; i < doc.layers.length; i++) {
   doc.layers[i].visible = visibility[i];
