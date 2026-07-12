@@ -119,8 +119,14 @@ function applyClip(clipGroup) {
   }
 }
 
-// Copy items into the export layer. Fully-inside items are placed directly;
-// only items that extend beyond the artboard are collected into a clip group.
+// Copy items into the export layer as TWO independent parts (per layer):
+//   1) fully-inside objects placed directly, preserving their internal order;
+//   2) a dedicated clipping group (clipName) for objects that spill beyond the
+//      artboard, also preserving their internal order.
+// The clip group is appended AFTER the normal objects, so in the Layers panel
+// it sits just below this layer's content. Callers add layers in the desired
+// top-to-bottom order; each call appends to the back (PLACEATEND), so the
+// final stacking is exactly: FG, FG_CLIP, PLACEHOLDERS, ART_CLIP, BG, BG_CLIP.
 function copyLayerItems(
   items,
   exportLayer,
@@ -132,12 +138,12 @@ function copyLayerItems(
 ) {
   if (items.length === 0) return;
 
-  var clipGroup = null;
+  // Pass 1: fully-inside items, placed directly (internal order preserved).
   var lastUnmasked = null;
-
   for (var i = 0; i < items.length; i++) {
     var b = items[i].bounds;
     if (!isInArtboard(b, abRect)) continue;
+    if (!isFullyInside(b, abRect)) continue;
 
     var copy = copyToLayer(items[i].item, exportLayer, abRect, scale);
 
@@ -147,23 +153,44 @@ function copyLayerItems(
       copy.blendingMode = items[i].blendingMode;
     }
 
-    if (isFullyInside(b, abRect)) {
-      if (lastUnmasked) copy.move(lastUnmasked, ElementPlacement.PLACEAFTER);
-      else copy.move(exportLayer, ElementPlacement.PLACEATEND);
-      lastUnmasked = copy;
-    } else {
-      if (!clipGroup)
-        clipGroup = createClipGroup(
-          exportLayer,
-          exportWidth,
-          exportHeight,
-          clipName,
-        );
-      copy.move(clipGroup, ElementPlacement.PLACEATEND);
-    }
+    if (lastUnmasked) copy.move(lastUnmasked, ElementPlacement.PLACEAFTER);
+    else copy.move(exportLayer, ElementPlacement.PLACEATEND);
+    lastUnmasked = copy;
   }
 
-  if (clipGroup) applyClip(clipGroup);
+  // Pass 2: overflow items collected into a dedicated clip group (internal
+  // order preserved). The group is appended after the normal items above.
+  var clipGroup = null;
+  for (var j = 0; j < items.length; j++) {
+    var b2 = items[j].bounds;
+    if (!isInArtboard(b2, abRect)) continue;
+    if (isFullyInside(b2, abRect)) continue;
+
+    if (!clipGroup)
+      clipGroup = createClipGroup(
+        exportLayer,
+        exportWidth,
+        exportHeight,
+        clipName,
+      );
+
+    var copy2 = copyToLayer(items[j].item, exportLayer, abRect, scale);
+    if (items[j].opacity !== undefined) {
+      copy2.opacity = items[j].opacity;
+      copy2.blendingMode = items[j].blendingMode;
+    }
+    copy2.move(clipGroup, ElementPlacement.PLACEATEND);
+  }
+
+  if (clipGroup) {
+    // groupItems.add() inserts the new group at the FRONT (top) of the layer,
+    // which would put <layer>_CLIP above this layer's own content (and above
+    // everything else). Move it to the back so it sits just below this layer's
+    // normal objects and above the next layer's content — giving the required
+    // panel order: <layer>, <layer>_CLIP.
+    clipGroup.move(exportLayer, ElementPlacement.PLACEATEND);
+    applyClip(clipGroup);
+  }
 }
 
 function exportArtboards(prefix) {
@@ -193,9 +220,11 @@ function exportArtboards(prefix) {
     abRects[a] = srcDoc.artboards[a].artboardRect;
   }
 
-  // Resolve source layers and item bounds ONCE. visibleBounds is expensive
-  // (forces ink/stroke recompute) and is constant across artboards, so caching
+  // Resolve source layers and item bounds ONCE. geometricBounds is cheap
+  // (no stroke/fill expansion) and is constant across artboards, so caching
   // it here avoids the N(artboards) x M(items) recomputation in the loop.
+  // Overflow beyond the artboard is still clipped by the artboard mask below,
+  // so using geometric (vs visible) bounds does not change the output.
   var bgLayer = getLayerByName(srcDoc, "BG");
   var plLayer = getLayerByName(srcDoc, "PLACEHOLDERS");
   var fgLayer = getLayerByName(srcDoc, "FG");
@@ -205,7 +234,7 @@ function exportArtboards(prefix) {
     for (var bi = 0; bi < bgLayer.pageItems.length; bi++) {
       bgItems.push({
         item: bgLayer.pageItems[bi],
-        bounds: bgLayer.pageItems[bi].visibleBounds,
+        bounds: bgLayer.pageItems[bi].geometricBounds,
       });
     }
   }
@@ -215,7 +244,7 @@ function exportArtboards(prefix) {
     for (var fi = 0; fi < fgLayer.pageItems.length; fi++) {
       fgItems.push({
         item: fgLayer.pageItems[fi],
-        bounds: fgLayer.pageItems[fi].visibleBounds,
+        bounds: fgLayer.pageItems[fi].geometricBounds,
       });
     }
   }
@@ -237,7 +266,7 @@ function exportArtboards(prefix) {
         if (genCG) {
           plItems.push({
             item: genCG,
-            bounds: genCG.visibleBounds,
+            bounds: genCG.geometricBounds,
             opacity: grpOpacity,
             blendingMode: grpBlend,
           });
@@ -248,7 +277,7 @@ function exportArtboards(prefix) {
           if (grp.pageItems[pi].name == "ART") {
             plItems.push({
               item: grp.pageItems[pi],
-              bounds: grp.pageItems[pi].visibleBounds,
+              bounds: grp.pageItems[pi].geometricBounds,
               opacity: grpOpacity,
               blendingMode: grpBlend,
             });
@@ -258,7 +287,7 @@ function exportArtboards(prefix) {
       } else {
         plItems.push({
           item: item,
-          bounds: item.visibleBounds,
+          bounds: item.geometricBounds,
         });
       }
     }
@@ -284,41 +313,36 @@ function exportArtboards(prefix) {
     tempDoc.artboards[0].artboardRect = [0, exportHeight, exportWidth, 0];
     var exportLayer = tempDoc.layers[0];
 
-    // BG -> PLACEHOLDERS -> FG (bottom to top). A clip mask is created only
-    // for items that extend beyond the artboard; fully-inside items are
-    // placed directly.
-    copyLayerItems(
-      bgItems,
-      exportLayer,
-      abRect,
-      scale,
-      exportWidth,
-      exportHeight,
-      "BG_CLIP",
-    );
-    copyLayerItems(
-      plItems,
-      exportLayer,
-      abRect,
-      scale,
-      exportWidth,
-      exportHeight,
-      "ART_CLIP",
-    );
-    copyLayerItems(
-      fgItems,
-      exportLayer,
-      abRect,
-      scale,
-      exportWidth,
-      exportHeight,
-      "FG_CLIP",
-    );
+    // Собираем экспортный слой в ФИКСИРОВАННОМ порядке (сверху вниз панели
+    // Layers): FG, FG_CLIP, PLACEHOLDERS, ART_CLIP, BG, BG_CLIP.
+    // Каждый слой копируется в две части — обычные объекты, затем clipping
+    // group для объектов вне артборда (см. copyLayerItems). Так как каждый
+    // вызов добавляет в "спину" (PLACEATEND), итоговый порядок совпадает с
+    // нужным: FG выше всего, BG_CLIP — самый нижний.
+    var exportOrder = [
+      { layer: fgLayer, items: fgItems, clip: "FG_CLIP" },
+      { layer: plLayer, items: plItems, clip: "ART_CLIP" },
+      { layer: bgLayer, items: bgItems, clip: "BG_CLIP" },
+    ];
+    for (var li = 0; li < exportOrder.length; li++) {
+      var ord = exportOrder[li];
+      if (ord.layer && ord.items.length > 0) {
+        copyLayerItems(
+          ord.items,
+          exportLayer,
+          abRect,
+          scale,
+          exportWidth,
+          exportHeight,
+          ord.clip,
+        );
+      }
+    }
 
-    // Подготовить временный документ к экспорту
-    tempDoc.activate();
-
-    app.selection = null;
+    // Подготовить временный документ к экспорту.
+    // tempDoc уже активен сразу после app.documents.add(), поэтому лишний
+    // activate() (переключение контекста) и лишний сброс выделения перед
+    // selectall убраны — selectall сам очищает выделение.
     app.executeMenuCommand("selectall");
 
     // Создать кривые из текста
