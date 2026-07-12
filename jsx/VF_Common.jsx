@@ -242,14 +242,17 @@ function makeClippingMask(artGroup, mask) {
 }
 
 function fillSimpleTemplate(group, masterByNumber) {
+  // Clear previous generation FIRST, before any early return, so regenerating
+  // with new elements always starts from a clean template (old ART removed
+  // even when there is no matching MASTER for this placeholder).
+  removeGeneratedArt(group);
+
   var target = findTarget(group);
   if (!target) return;
 
   // Resolve MASTER by target number; skip silently if no matching MASTER.
   var source = masterByNumber[getTargetNumber(target.name)];
   if (!source) return;
-
-  removeGeneratedArt(group);
 
   var copy = source.duplicate(group, ElementPlacement.PLACEATEND);
   copy.name = "ART";
@@ -409,6 +412,8 @@ function hasGeneratedSibling(group) {
 }
 
 function removeGeneratedArt(group) {
+  // Remove any generated ART groups (named "ART", or clipped groups that no
+  // longer contain a template target — i.e. the generated clipping output).
   for (var i = group.groupItems.length - 1; i >= 0; i--) {
     var childGroup = group.groupItems[i];
     if (childGroup.name === "ART" || (childGroup.clipped && !containsTarget(childGroup))) {
@@ -416,15 +421,23 @@ function removeGeneratedArt(group) {
     }
   }
 
+  // Remove generated ART page items (simple-template case).
   for (var j = group.pageItems.length - 1; j >= 0; j--) {
     if (group.pageItems[j].name === "ART") group.pageItems[j].remove();
   }
+
+  // Un-hide every template target (S, SK, S1, SK3, ...) so the next
+  // generation starts from a clean, visible template. Covers the clipped
+  // template subgroup, a simple template page item, and the group itself
+  // when it is the clipped template.
+  if (group.clipped && containsTarget(group)) group.hidden = false;
   for (var k = 0; k < group.groupItems.length; k++) {
-  var g = group.groupItems[k];
-  if (g.clipped && containsTarget(g)) {
-    g.hidden = false;
+    var g = group.groupItems[k];
+    if (g.clipped && containsTarget(g)) g.hidden = false;
   }
-}
+  for (var p = 0; p < group.pageItems.length; p++) {
+    if (isTarget(group.pageItems[p])) group.pageItems[p].hidden = false;
+  }
 }
 
 function findClippingTemplate(group) {
