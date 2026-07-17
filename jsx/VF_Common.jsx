@@ -19,6 +19,18 @@ function isCopyAppearance(name) {
   return /^S\d*$/.test(name);
 }
 
+// Generation mode: "all" = S + SK, "s" = only S/S1/S2..., "sk" = only SK/SK1/...
+// Set by generate(mode) and read by isTarget() so the whole fill pipeline
+// (findTarget, containsTarget, removeGeneratedArt, hideTargets) honors it.
+var gGenMode = "all";
+
+// True if a target name should be generated in the current mode.
+function isTargetForMode(name, mode) {
+  if (mode === "s") return /^S\d*$/.test(name);
+  if (mode === "sk") return /^SK\d*$/.test(name);
+  return isTargetName(name); // "all"
+}
+
 function getMasterNumber(name) {
   if (name === "MASTER") return 1;
   var m = name.match(/^MASTER(\d+)$/);
@@ -63,7 +75,10 @@ function vfResult() {
   );
 }
 
-function generate() {
+function generate(mode) {
+  // Default to "all" when called without a mode (e.g. legacy VF_Generate.jsx).
+  gGenMode = mode || "all";
+
   VF_ERRORS = [];
   VF_SUCCESS = "";
 
@@ -111,7 +126,7 @@ function generate() {
       fillPlaceholderGroup(placeholdersLayer.groupItems[i], masterByNumber);
     }
     hideTargets();
-    vfSuccess("Generated");
+    vfSuccess("Generated (" + gGenMode + ")");
   } catch (e) {
     vfError("Error: " + e.message);
   }
@@ -318,11 +333,15 @@ function scaleToFit(item, data) {
 }
 
 function rotateToTarget(item, data) {
-  item.rotate(data.angle);
+  // Mirror FIRST, then rotate. The flip must be applied in the source's own
+  // frame; the final rotation then aligns the already-flipped source with the
+  // target. Rotating first and mirroring after produced wrong results for
+  // horizontally mirrored + rotated targets (the mirror axis ended up rotated).
   if (data.mirrored) {
     item.resize(-100, 100);
     item.rotate(180);
   }
+  item.rotate(data.angle);
 }
 
 function centerOnTarget(item, data) {
@@ -412,32 +431,64 @@ function hasGeneratedSibling(group) {
 }
 
 function removeGeneratedArt(group) {
+  // Only clear ART that belongs to the CURRENT generation mode, so generating
+  // one set (e.g. "s") does not wipe the other set (e.g. "sk") already present.
+  // gGenMode === "all" clears everything (used by the "Generate all" button).
+  var clearAll = gGenMode === "all";
+
+  // Find the template target (S/SK, any mode) to know which set this group
+  // belongs to. If it matches the current mode (or we're clearing all), the
+  // generated ART for this group is removed and the template is re-shown.
+  var tgt = findTemplateTargetAnyMode(group);
+  var tgtMode = tgt ? (isTargetForMode(tgt.name, "sk") ? "sk" : "s") : "all";
+  var shouldClear = clearAll || tgtMode === gGenMode;
+
   // Remove any generated ART groups (named "ART", or clipped groups that no
   // longer contain a template target — i.e. the generated clipping output).
   for (var i = group.groupItems.length - 1; i >= 0; i--) {
     var childGroup = group.groupItems[i];
     if (childGroup.name === "ART" || (childGroup.clipped && !containsTarget(childGroup))) {
-      childGroup.remove();
+      if (shouldClear) childGroup.remove();
     }
   }
 
   // Remove generated ART page items (simple-template case).
   for (var j = group.pageItems.length - 1; j >= 0; j--) {
-    if (group.pageItems[j].name === "ART") group.pageItems[j].remove();
+    if (group.pageItems[j].name === "ART") {
+      if (shouldClear) group.pageItems[j].remove();
+    }
   }
 
-  // Un-hide every template target (S, SK, S1, SK3, ...) so the next
-  // generation starts from a clean, visible template. Covers the clipped
-  // template subgroup, a simple template page item, and the group itself
-  // when it is the clipped template.
-  if (group.clipped && containsTarget(group)) group.hidden = false;
+  // Un-hide the template target for THIS mode so the next generation of the
+  // same set starts from a clean, visible template. Other modes stay hidden.
+  // Covers the clipped template subgroup, a simple template page item, and the
+  // group itself when it is the clipped template.
+  if (group.clipped && containsTarget(group) && shouldClear) group.hidden = false;
   for (var k = 0; k < group.groupItems.length; k++) {
     var g = group.groupItems[k];
-    if (g.clipped && containsTarget(g)) g.hidden = false;
+    if (g.clipped && containsTarget(g) && shouldClear) g.hidden = false;
   }
   for (var p = 0; p < group.pageItems.length; p++) {
-    if (isTarget(group.pageItems[p])) group.pageItems[p].hidden = false;
+    if (isTargetName(group.pageItems[p].name) && shouldClear) {
+      group.pageItems[p].hidden = false;
+    }
   }
+}
+
+// Find the template target (S/SK, any number) anywhere inside `container`,
+// ignoring the current generation mode. Used by removeGeneratedArt to decide
+// which generated set a group belongs to.
+function findTemplateTargetAnyMode(container) {
+  for (var i = 0; i < container.pageItems.length; i++) {
+    if (isTargetName(container.pageItems[i].name)) return container.pageItems[i];
+  }
+  if (container.groupItems) {
+    for (var j = 0; j < container.groupItems.length; j++) {
+      var found = findTemplateTargetAnyMode(container.groupItems[j]);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 function findClippingTemplate(group) {
@@ -461,12 +512,33 @@ function containsTarget(container) {
 }
 
 function isTarget(item) {
-  return item && isTargetName(item.name);
+  return item && isTargetForMode(item.name, gGenMode);
 }
 
 function replacePlaceholderText(container, text) {
   for (var i = 0; i < container.textFrames.length; i++) {
-    container.textFrames[i].contents = text;
+    var tf = container.textFrames[i];
+
+    // Save the template's original width and horizontal scale before changing
+    // the text, so we can rescale only horizontally afterwards.
+    var oldWidth = tf.width;
+    var oldHorizontalScale = tf.textRange.characterAttributes.horizontalScale;
+
+    tf.contents = text;
+
+    // Measure the new (unscaled) width and compute a horizontal-scale factor
+    // that brings it back to the original template width. Only the horizontal
+    // scale is changed — font size and text height stay the same (no resize()).
+    var newWidth = tf.width;
+    if (newWidth > 0) {
+      var scale = oldWidth / newWidth;
+      // Don't squeeze below 60% — very long words would become unreadable
+      // "noodles"; at that point the text clearly needs a manual fix.
+      tf.textRange.characterAttributes.horizontalScale = Math.max(
+        60,
+        oldHorizontalScale * scale
+      );
+    }
   }
 }
 

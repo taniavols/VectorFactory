@@ -11,25 +11,44 @@
 
   <body>
     <div id="app">
-      <div id="previewBox">
-        <img id="preview" alt="Current element preview" />
-      </div>
+      <section class="panel-section">
+        <div class="section-title">Element</div>
+        <div id="previewBox">
+          <img id="preview" alt="Current element preview" />
+          <div class="preview-empty">No preview</div>
+        </div>
+        <button id="setElement">Set Element</button>
+      </section>
 
-      <button id="setElement">Set Element</button>
-      <button id="generate" class="primary">Generate</button>
+      <section class="panel-section">
+        <div class="section-title">Generate</div>
+        <div class="row">
+          <button id="clear">Clear</button>
+          <button id="toggle">Hide</button>
+          <button id="remapBtn" class="export">Remap</button>
+        </div>
+        <div class="gen-row">
+          <button id="generate" class="primary">Generate all</button>
+          <button id="generateS" class="primary">Blacks only</button>
+          <button id="generateSK" class="primary">Colors only</button>
+        </div>
+      </section>
 
-      <div class="row">
-        <button id="clear">Clear</button>
-        <button id="toggle">Hide</button>
-      </div>
-
-      <hr />
-
-      <input id="prefix" type="text" placeholder="Filename Prefix" />
-      <button id="exportBtn" class="export">Export</button>
-      <button id="exportSelectedBtn" class="export secondary">
-        Export Selected
-      </button>
+      <section class="panel-section">
+        <div class="section-title">Export</div>
+        <input id="prefix" type="text" placeholder="Filename Prefix" />
+        <div class="path-row">
+          <input
+            id="exportPath"
+            type="text"
+            placeholder="Export folder"
+            readonly
+          />
+          <button id="choosePathBtn" class="export">Choose Folder</button>
+        </div>
+        <button id="exportBtn" class="export">Export</button>
+        <button id="exportSelectedBtn" class="export">Export Selected</button>
+      </section>
 
       <div id="status">Ready</div>
     </div>
@@ -48,6 +67,18 @@
         <div class="modal-actions">
           <button id="abCancel" class="secondary">Cancel</button>
           <button id="abExport" class="primary">Export</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Remap Placeholders: rename S/SK* targets inside the selection -->
+    <div id="remapOverlay" class="overlay hidden">
+      <div class="modal">
+        <div class="modal-title">Remap Placeholders</div>
+        <div id="remapList" class="remap-list"></div>
+        <div class="modal-actions">
+          <button id="remapCancel" class="secondary">Cancel</button>
+          <button id="remapRename" class="primary">Rename</button>
         </div>
       </div>
     </div>

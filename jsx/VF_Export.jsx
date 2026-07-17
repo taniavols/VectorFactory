@@ -2,6 +2,11 @@
 #target illustrator
 var TARGET_EXPORT_PIXELS = 25000000;
 
+// Placeholder groups copied whole (with their appearance effects) during the
+// current artboard's export. After ALL transfers finish, Expand Appearance is
+// run on each so the live effect is baked into geometry. Reset per artboard.
+var gEffectGroups = [];
+
 function sanitizeFilename(name) {
   name = name.replace(/[^a-zA-Z0-9_ ]/g, "");
   name = name.replace(/ /g, "_");
@@ -37,6 +42,96 @@ function findGeneratedCG(group) {
     if (!hasTemplate) return g;
   }
   return null;
+}
+
+// True if the item itself carries a live effect (e.g. a transform/distort
+// effect applied via the Appearance panel) or an envelope distortion.
+function hasLiveEffect(item) {
+  try {
+    if (item.effects && item.effects.length > 0) return true;
+  } catch (e) {}
+  try {
+    if (item.envelope != null) return true;
+  } catch (e) {}
+  return false;
+}
+
+// True if the item OR any of its descendants carries a live effect / envelope
+// distortion. The user may apply the effect to an inner group, so we must
+// search recursively; the whole (top-level) group is then copied to transfer
+// the effect during export.
+function groupOrChildHasEffect(item) {
+  if (hasLiveEffect(item)) return true;
+  try {
+    var groups = item.groupItems;
+    if (groups) {
+      for (var i = 0; i < groups.length; i++) {
+        if (groupOrChildHasEffect(groups[i])) return true;
+      }
+    }
+  } catch (e) {}
+  return false;
+}
+
+// After duplicating a placeholder group that carries appearance effects,
+// remove everything except its generated ART (and any generated clipping
+// group). This drops the hidden S/SK template and any backdrop from the
+// export while keeping the group's appearance effects on the ART. The live
+// effect is expanded later (after ALL transfers) via expandAllEffects().
+function keepOnlyArt(group) {
+  for (var i = group.pageItems.length - 1; i >= 0; i--) {
+    var child = group.pageItems[i];
+    if (child.name === "ART") continue;
+    if (child.typename === "GroupItem" && child.clipped && !groupHasTemplate(child)) continue;
+    child.remove();
+  }
+}
+
+// Expand Appearance (Object -> Expand Appearance) on every effect group copied
+// during this artboard's export. Done ONCE, after all transfers, so the live
+// effect is baked into real geometry and survives the EPS / Illustrator 10
+// export. Runs outside the copy loop to avoid disturbing the transfers.
+function expandAllEffects() {
+  for (var i = 0; i < gEffectGroups.length; i++) {
+    try {
+      app.selection = null;
+      gEffectGroups[i].selected = true;
+      app.executeMenuCommand("expandStyle");
+      app.selection = null;
+    } catch (e) {}
+  }
+}
+
+function groupHasTemplate(group) {
+  for (var i = 0; i < group.pageItems.length; i++) {
+    if (isTemplateName(group.pageItems[i].name)) return true;
+  }
+  return false;
+}
+
+// Debug: collect a human-readable list of which placeholder groups carry a
+// live effect, to diagnose export effect-transfer issues. Returns JSON array
+// of {name, effect} for groups that have an effect.
+function debugEffectGroups() {
+  if (app.documents.length === 0) return "[]";
+  var doc = app.activeDocument;
+  var plLayer = getLayerByName(doc, "PLACEHOLDERS");
+  if (!plLayer) return "[]";
+  var out = [];
+  for (var i = 0; i < plLayer.pageItems.length; i++) {
+    var item = plLayer.pageItems[i];
+    if (item.parent != plLayer) continue;
+    if (item.typename !== "GroupItem") continue;
+    if (groupOrChildHasEffect(item)) {
+      var eff = "unknown";
+      try {
+        if (item.effects && item.effects.length > 0) eff = item.effects[0].name;
+        else if (item.envelope != null) eff = "envelope";
+      } catch (e) {}
+      out.push('{"name":"' + vfEscapeJson(item.name) + '","effect":"' + vfEscapeJson(eff) + '"}');
+    }
+  }
+  return "[" + out.join(",") + "]";
 }
 
 // True if the (precomputed) bounds overlap the artboard at all.
@@ -153,6 +248,13 @@ function copyLayerItems(
       copy.blendingMode = items[i].blendingMode;
     }
 
+    // For placeholder groups with appearance effects, drop the hidden S/SK
+    // template / backdrop so only the generated ART keeps the group's effects.
+    if (items[i].applyGroupEffect) {
+      keepOnlyArt(copy);
+      gEffectGroups.push(copy);
+    }
+
     if (lastUnmasked) copy.move(lastUnmasked, ElementPlacement.PLACEAFTER);
     else copy.move(exportLayer, ElementPlacement.PLACEATEND);
     lastUnmasked = copy;
@@ -179,6 +281,12 @@ function copyLayerItems(
       copy2.opacity = items[j].opacity;
       copy2.blendingMode = items[j].blendingMode;
     }
+    // For placeholder groups with appearance effects, drop the hidden S/SK
+    // template / backdrop so only the generated ART keeps the group's effects.
+    if (items[j].applyGroupEffect) {
+      keepOnlyArt(copy2);
+      gEffectGroups.push(copy2);
+    }
     copy2.move(clipGroup, ElementPlacement.PLACEATEND);
   }
 
@@ -204,7 +312,23 @@ function getArtboardNames() {
   return "[" + parts.join(",") + "]";
 }
 
-function exportArtboards(prefix, selectedIndices) {
+// Open a folder picker and return the chosen path (raw string), or "" if the
+// user cancels. When `startPath` is provided, the dialog opens there (so
+// "Change Path" resumes at the previously chosen folder). Used by the panel's
+// "choose export folder" button.
+function selectExportFolder(startPath) {
+  var start = null;
+  if (startPath && startPath.length > 0) {
+    try {
+      start = new Folder(startPath);
+    } catch (e) {}
+  }
+  var f = Folder.selectDialog("Choose export folder", start);
+  if (!f) return "";
+  return f.fsName;
+}
+
+function exportArtboards(prefix, selectedIndices, folderPath) {
   VF_ERRORS = [];
   VF_SUCCESS = "";
 
@@ -218,7 +342,14 @@ function exportArtboards(prefix, selectedIndices) {
     if (!prefix || prefix.length === 0) prefix = "export";
   }
 
-  var exportFolder = Folder.selectDialog("Choose export folder");
+  // Use the folder chosen in the panel UI when provided; otherwise fall back
+  // to a folder picker (keeps the old behavior if called without a path).
+  var exportFolder = null;
+  if (folderPath && folderPath.length > 0) {
+    exportFolder = new Folder(folderPath);
+  } else {
+    exportFolder = Folder.selectDialog("Choose export folder");
+  }
   if (!exportFolder) return vfResult();
 
   var srcDoc = app.activeDocument;
@@ -273,27 +404,35 @@ function exportArtboards(prefix, selectedIndices) {
         var grpOpacity = grp.opacity;
         var grpBlend = grp.blendingMode;
 
+        // Find the generated content (ART child or generated clipping group)
+        // to base placement/clip decisions on its bounds (not the whole group,
+        // which may include a large hidden S/SK template).
+        var contentItem = null;
         var genCG = findGeneratedCG(grp);
         if (genCG) {
-          plItems.push({
-            item: genCG,
-            bounds: genCG.geometricBounds,
-            opacity: grpOpacity,
-            blendingMode: grpBlend,
-          });
-          continue;
+          contentItem = genCG;
+        } else {
+          for (var pi = 0; pi < grp.pageItems.length; pi++) {
+            if (grp.pageItems[pi].name == "ART") {
+              contentItem = grp.pageItems[pi];
+              break;
+            }
+          }
         }
 
-        for (var pi = 0; pi < grp.pageItems.length; pi++) {
-          if (grp.pageItems[pi].name == "ART") {
-            plItems.push({
-              item: grp.pageItems[pi],
-              bounds: grp.pageItems[pi].geometricBounds,
-              opacity: grpOpacity,
-              blendingMode: grpBlend,
-            });
-            break;
-          }
+        if (contentItem) {
+          // Copy the WHOLE group so any appearance effects applied to it (or a
+          // descendant) — e.g. Distort & Transform -> Roughen — transfer to the
+          // export. keepOnlyArt() later strips the hidden S/SK template and any
+          // backdrop, leaving the generated ART carrying the group's effects.
+          plItems.push({
+            item: grp,
+            bounds: contentItem.geometricBounds,
+            opacity: grpOpacity,
+            blendingMode: grpBlend,
+            applyGroupEffect: true,
+          });
+          continue;
         }
       } else {
         plItems.push({
@@ -328,6 +467,10 @@ function exportArtboards(prefix, selectedIndices) {
     var safeName = sanitizeFilename(prefix + "_" + abName);
     if (safeName.length === 0) safeName = "export_" + a;
 
+    // Reset the per-artboard collection of effect groups before this board's
+    // transfers; they are expanded once, after all copies, below.
+    gEffectGroups = [];
+
     var tempDoc = app.documents.add(
       DocumentColorSpace.RGB,
       exportWidth,
@@ -361,6 +504,10 @@ function exportArtboards(prefix, selectedIndices) {
         );
       }
     }
+
+    // All transfers done — now bake the live appearance effects (e.g. Distort &
+    // Transform -> Roughen) into real geometry via Expand Appearance, once.
+    expandAllEffects();
 
     // Подготовить временный документ к экспорту.
     // tempDoc уже активен сразу после app.documents.add(), поэтому лишний
