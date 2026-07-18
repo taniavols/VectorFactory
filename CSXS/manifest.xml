@@ -61,9 +61,9 @@
 
                         <Size>
 
-                            <Width>200</Width>
+                            <Width>240</Width>
 
-                            <Height>650</Height>
+                            <Height>720</Height>
 
                         </Size>
 
@@ -71,9 +71,17 @@
 
                             <Width>200</Width>
 
-                            <Height>650</Height>
+                            <Height>400</Height>
 
                         </MinSize>
+
+                        <MaxSize>
+
+                            <Width>600</Width>
+
+                            <Height>2000</Height>
+
+                        </MaxSize>
 
                     </Geometry>
 

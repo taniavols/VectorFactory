@@ -2,6 +2,7 @@ html,
 body {
   margin: 0;
   padding: 0;
+  height: 100%;
   background: #323232;
   color: #ddd;
   font:
@@ -10,8 +11,14 @@ body {
   overflow: hidden;
 }
 
+/* The CEP panel window has a fixed height (set in the manifest). Let the
+   content area scroll vertically inside it instead of forcing the whole
+   panel to be oversized. */
 #app {
+  height: 100%;
+  box-sizing: border-box;
   padding: 8px;
+  overflow-y: auto;
 }
 
 /* Panel sections with a titled header for visual grouping */
@@ -387,4 +394,122 @@ hr {
 
 .remap-row input:focus {
   border-color: #1473e6;
+}
+
+/* Tab bar at the top of the panel (Tools / Metadata) */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.tabs .tab {
+  flex: 1;
+  height: 28px;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  background: #3a3a3a;
+  color: #bbb;
+  cursor: pointer;
+  font: inherit;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.tabs .tab:hover {
+  background: #454545;
+}
+
+.tabs .tab.active {
+  background: #1473e6;
+  color: #fff;
+  border-color: #1473e6;
+}
+
+/* Real tab behavior: only the active tab's content is shown; the others are
+   removed from layout entirely (not just visually disabled). */
+.hidden {
+  display: none !important;
+}
+
+/* Keep the panel height stable across tabs so switching doesn't jump. */
+#tab-tools,
+#tab-metadata {
+  min-height: 400px;
+}
+
+/* Artboard Metadata tab */
+.meta-ab-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: #2f2f2f;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+.meta-label {
+  display: block;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9aa0a6;
+  margin-bottom: 2px;
+}
+
+.meta-field {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 6px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #2f2f2f;
+  color: #ddd;
+  font:
+    11px "Segoe UI",
+    sans-serif;
+  line-height: 1.35;
+  resize: vertical;
+  outline: none;
+  margin-bottom: 6px;
+}
+
+.meta-field:focus {
+  border-color: #1473e6;
+}
+
+.meta-field:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.meta-status {
+  min-height: 14px;
+  font-size: 10px;
+  color: #7fd67f;
+  text-align: right;
+}
+
+/* Set member list (ordered, read-only) inside the Set section. */
+.meta-members {
+  background: #2f2f2f;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin-bottom: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.meta-members .member-row {
+  font-size: 10px;
+  color: #cfd3d6;
+  padding: 1px 0;
+  word-break: break-all;
 }

@@ -558,3 +558,735 @@ function crossProduct(p0, p1, p2) {
   return (p1[0] - p0[0]) * (p2[1] - p1[1]) - (p1[1] - p0[1]) * (p2[0] - p1[0]);
 }
 
+// ===== Metadata system (two independent subsystems) =====
+//
+// 1) ELEMENT METADATA — belongs to ONE artwork element (PageItem). It is
+//    stored as a SINGLE serialized object in the element's `note`:
+//      {version:1, id:"...", objectName:"...", keywords:["...","..."]}
+//    One object (not line-based KEY=value pairs) so it is versioned, easy
+//    to extend (just add a property), and never needs new parsing rules.
+//    The note travels with the element through copy / duplicate / move.
+//
+// 2) SET METADATA — a user-defined COMPOSITION of elements (an ordered
+//    list of member ids plus a Title and Keywords). It is stored as one
+//    serialized object per Set inside the hidden VF_METADATA layer:
+//      {setId:"...", createdAt:"...", modifiedAt:"...",
+//       members:["id1","id2"], title:"...", keywords:["...","..."]}
+//    Multiple Sets can exist; each is independent and survives save/reopen.
+//
+// The two are completely decoupled.
+
+// --- Shared helpers: valid JSON serialize / parse (no eval) ---
+// ExtendScript has no built-in JSON object, so we provide a minimal,
+// correct implementation. Metadata is ALWAYS stored as valid JSON in the
+// note, and malformed input fails gracefully (jsonParse returns null)
+// instead of executing anything. This replaces the old eval()-based
+// parsing, making the metadata safer and portable.
+
+// Serialize a value (object / array / string / number / bool / null) to
+// valid JSON.
+function jsonStringify(value) {
+  if (value === null || value === undefined) return "null";
+  var t = typeof value;
+  if (t === "number") {
+    if (isNaN(value) || !isFinite(value)) return "null";
+    return String(value);
+  }
+  if (t === "boolean") return value ? "true" : "false";
+  if (t === "string") return jsonStringifyString(value);
+  if (value instanceof Array) {
+    var parts = [];
+    for (var i = 0; i < value.length; i++) {
+      parts.push(jsonStringify(value[i]));
+    }
+    return "[" + parts.join(",") + "]";
+  }
+  // Plain object (our metadata records).
+  var out = [];
+  for (var k in value) {
+    out.push(jsonStringifyString(k) + ":" + jsonStringify(value[k]));
+  }
+  return "{" + out.join(",") + "}";
+}
+
+function jsonStringifyString(s) {
+  s = String(s);
+  var res = '"';
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charAt(i);
+    var cc = s.charCodeAt(i);
+    if (c === '"') res += '\\"';
+    else if (c === "\\") res += "\\\\";
+    else if (c === "\n") res += "\\n";
+    else if (c === "\r") res += "\\r";
+    else if (c === "\t") res += "\\t";
+    else if (cc < 0x20) {
+      var hex = cc.toString(16);
+      while (hex.length < 4) hex = "0" + hex;
+      res += "\\u" + hex;
+    } else {
+      res += c;
+    }
+  }
+  return res + '"';
+}
+
+// Parse valid JSON into a value, or null if the input is missing or
+// malformed. Never throws and never executes code.
+function jsonParse(str) {
+  if (str === null || str === undefined) return null;
+  str = String(str);
+  var idx = 0;
+  var len = str.length;
+
+  function skipWs() {
+    while (idx < len) {
+      var c = str.charAt(idx);
+      if (c === " " || c === "\t" || c === "\n" || c === "\r") idx++;
+      else break;
+    }
+  }
+
+  function parseValue() {
+    skipWs();
+    if (idx >= len) throw "eof";
+    var c = str.charAt(idx);
+    if (c === "{") return parseObject();
+    if (c === "[") return parseArray();
+    if (c === '"') return parseString();
+    if (c === "t" || c === "f") return parseBool();
+    if (c === "n") return parseNull();
+    if (c === "-" || (c >= "0" && c <= "9")) return parseNumber();
+    throw "unexpected";
+  }
+
+  function parseObject() {
+    idx++;
+    var obj = {};
+    skipWs();
+    if (str.charAt(idx) === "}") {
+      idx++;
+      return obj;
+    }
+    while (true) {
+      skipWs();
+      if (str.charAt(idx) !== '"') throw "key";
+      var key = parseString();
+      skipWs();
+      if (str.charAt(idx) !== ":") throw "colon";
+      idx++;
+      obj[key] = parseValue();
+      skipWs();
+      var ch = str.charAt(idx);
+      if (ch === ",") {
+        idx++;
+        continue;
+      }
+      if (ch === "}") {
+        idx++;
+        break;
+      }
+      throw "obj-end";
+    }
+    return obj;
+  }
+
+  function parseArray() {
+    idx++;
+    var arr = [];
+    skipWs();
+    if (str.charAt(idx) === "]") {
+      idx++;
+      return arr;
+    }
+    while (true) {
+      arr.push(parseValue());
+      skipWs();
+      var ch = str.charAt(idx);
+      if (ch === ",") {
+        idx++;
+        continue;
+      }
+      if (ch === "]") {
+        idx++;
+        break;
+      }
+      throw "arr-end";
+    }
+    return arr;
+  }
+
+  function parseString() {
+    idx++;
+    var out = "";
+    while (idx < len) {
+      var c = str.charAt(idx);
+      if (c === '"') {
+        idx++;
+        return out;
+      }
+      if (c === "\\") {
+        idx++;
+        var e = str.charAt(idx);
+        if (e === '"') out += '"';
+        else if (e === "\\") out += "\\";
+        else if (e === "/") out += "/";
+        else if (e === "n") out += "\n";
+        else if (e === "t") out += "\t";
+        else if (e === "r") out += "\r";
+        else if (e === "b") out += "\b";
+        else if (e === "f") out += "\f";
+        else if (e === "u") {
+          var hx = str.substr(idx + 1, 4);
+          idx += 4;
+          out += String.fromCharCode(parseInt(hx, 16));
+        } else out += e;
+        idx++;
+      } else {
+        out += c;
+        idx++;
+      }
+    }
+    throw "string-eof";
+  }
+
+  function parseNumber() {
+    var start = idx;
+    if (str.charAt(idx) === "-") idx++;
+    while (idx < len) {
+      var c = str.charAt(idx);
+      if (
+        (c >= "0" && c <= "9") ||
+        c === "." ||
+        c === "e" ||
+        c === "E" ||
+        c === "+" ||
+        c === "-"
+      ) {
+        idx++;
+      } else break;
+    }
+    return parseFloat(str.substring(start, idx));
+  }
+
+  function parseBool() {
+    if (str.substr(idx, 4) === "true") {
+      idx += 4;
+      return true;
+    }
+    if (str.substr(idx, 5) === "false") {
+      idx += 5;
+      return false;
+    }
+    throw "bool";
+  }
+
+  function parseNull() {
+    if (str.substr(idx, 4) === "null") {
+      idx += 4;
+      return null;
+    }
+    throw "null";
+  }
+
+  try {
+    var result = parseValue();
+    skipWs();
+    if (idx !== len) throw "trailing";
+    return result;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ===== Metadata schema versions & migration =====
+// Bump these when the schema changes; the loaders below migrate any
+// older format up to the current one. Never hardcode the version number
+// elsewhere — all newly written metadata uses these constants.
+var ELEMENT_METADATA_VERSION = 1;
+var SET_METADATA_VERSION = 1;
+
+// Coerce an array-ish value into a clean array of non-empty strings.
+function normalizeStringArray(arr) {
+  var out = [];
+  if (!arr) return out;
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i] != null && String(arr[i]).length > 0) out.push(String(arr[i]));
+  }
+  return out;
+}
+
+// ---- Element metadata loader (single entry point) ----
+// Parses `note`, detects the metadata version, migrates any older
+// format up to the current schema, and ALWAYS returns the latest
+// object structure: { version, id, objectName, keywords:[...] }.
+// All migration logic lives here — no version checks elsewhere.
+function loadElementMetadata(note) {
+  note = note || "";
+  // 1) Versioned JSON (current + future versions).
+  var obj = jsonParse(note);
+  if (obj) return migrateElementMeta(obj);
+  // 2) Transitional single-object format (unquoted keys, pre-JSON).
+  var trans = parseTransitionalElementMeta(note);
+  if (trans) return trans;
+  // 3) Legacy line-based format (OBJ_NAME=/ELEM_KW=/VF_ID=).
+  var legacy = parseLegacyElementMeta(note);
+  if (legacy) return legacy;
+  // 4) Empty / unreadable -> fresh current-schema object.
+  return {
+    version: ELEMENT_METADATA_VERSION,
+    id: "",
+    objectName: "",
+    keywords: []
+  };
+}
+
+// Migrate a parsed element object to the current schema. Future upgrades
+// are added here, oldest first (e.g. v1 -> v2 -> v3).
+function migrateElementMeta(obj) {
+  var v = typeof obj.version === "number" ? obj.version : 1;
+  // if (v === 1) { obj = upgradeElementV1ToV2(obj); v = 2; }
+  // if (v === 2) { obj = upgradeElementV2ToV3(obj); v = 3; }
+  return {
+    version: ELEMENT_METADATA_VERSION,
+    id: obj.id != null ? String(obj.id) : "",
+    objectName: obj.objectName != null ? String(obj.objectName) : "",
+    keywords: normalizeStringArray(obj.keywords)
+  };
+}
+
+// Best-effort recovery of the previous (eval-based) single-object
+// format, which used unquoted keys and is NOT valid JSON. Extracted
+// by regex (no eval) so old files are not lost.
+function parseTransitionalElementMeta(note) {
+  if (note.indexOf("{") === -1) return null;
+  var idM = note.match(/id:\s*"([^"]*)"/);
+  var nameM = note.match(/objectName:\s*"([^"]*)"/);
+  var kwM = note.match(/keywords:\s*\[([^\]]*)\]/);
+  if (!idM && !nameM && !kwM) return null;
+  var keywords = [];
+  if (kwM) {
+    var re = /"([^"]*)"/g;
+    var m;
+    while ((m = re.exec(kwM[1])) !== null) keywords.push(m[1]);
+  }
+  return {
+    version: ELEMENT_METADATA_VERSION,
+    id: idM ? idM[1] : "",
+    objectName: nameM ? nameM[1] : "",
+    keywords: keywords
+  };
+}
+
+// Recovery of the legacy line-based element format.
+function parseLegacyElementMeta(note) {
+  if (note.indexOf("OBJ_NAME=") === -1 && note.indexOf("VF_ID=") === -1) {
+    return null;
+  }
+  var idM = note.match(/VF_ID=([0-9a-fA-F]+)/);
+  var nameM = note.match(/OBJ_NAME=([^\n]*)/);
+  var kwM = note.match(/ELEM_KW=([^\n]*)/);
+  var keywords = [];
+  if (kwM && kwM[1].length > 0) {
+    var parts = kwM[1].split(",");
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i].replace(/^\s+|\s+$/g, "");
+      if (p.length > 0) keywords.push(p);
+    }
+  }
+  return {
+    version: ELEMENT_METADATA_VERSION,
+    id: idM ? idM[1] : "",
+    objectName: nameM ? nameM[1] : "",
+    keywords: keywords
+  };
+}
+
+// ---- Set metadata loader (single entry point) ----
+// Same contract as the element loader. Returns the latest structure:
+// { setId, createdAt, modifiedAt, members:[...], title, keywords:[...] }.
+function loadSetMetadata(note) {
+  note = note || "";
+  var obj = jsonParse(note);
+  if (obj) {
+    return migrateSetMeta(obj);
+  }
+  var trans = parseTransitionalSetMeta(note);
+  if (trans) return trans;
+  var legacy = parseLegacySetMeta(note);
+  if (legacy) return legacy;
+  return {
+    setId: "",
+    createdAt: "",
+    modifiedAt: "",
+    members: [],
+    title: "",
+    keywords: []
+  };
+}
+
+function migrateSetMeta(obj) {
+  var v = typeof obj.version === "number" ? obj.version : 1;
+  // if (v === 1) { obj = upgradeSetV1ToV2(obj); v = 2; }
+  return {
+    setId: obj.setId != null ? String(obj.setId) : "",
+    createdAt: obj.createdAt != null ? String(obj.createdAt) : "",
+    modifiedAt: obj.modifiedAt != null ? String(obj.modifiedAt) : "",
+    members: normalizeStringArray(obj.members),
+    title: obj.title != null ? String(obj.title) : "",
+    keywords: normalizeStringArray(obj.keywords)
+  };
+}
+
+function parseTransitionalSetMeta(note) {
+  if (note.indexOf("{") === -1) return null;
+  var idM = note.match(/setId:\s*"([^"]*)"/);
+  var caM = note.match(/createdAt:\s*"([^"]*)"/);
+  var maM = note.match(/modifiedAt:\s*"([^"]*)"/);
+  var titleM = note.match(/title:\s*"([^"]*)"/);
+  var kwM = note.match(/keywords:\s*\[([^\]]*)\]/);
+  var memM = note.match(/members:\s*\[([^\]]*)\]/);
+  if (!idM && !titleM && !kwM && !memM) return null;
+  var keywords = [];
+  if (kwM) {
+    var re = /"([^"]*)"/g;
+    var m;
+    while ((m = re.exec(kwM[1])) !== null) keywords.push(m[1]);
+  }
+  var members = [];
+  if (memM) {
+    var re2 = /"([^"]*)"/g;
+    var m2;
+    while ((m2 = re2.exec(memM[1])) !== null) members.push(m2[1]);
+  }
+  return {
+    setId: idM ? idM[1] : "",
+    createdAt: caM ? caM[1] : "",
+    modifiedAt: maM ? maM[1] : "",
+    members: members,
+    title: titleM ? titleM[1] : "",
+    keywords: keywords
+  };
+}
+
+function parseLegacySetMeta(note) {
+  if (note.indexOf("TITLE=") === -1 && note.indexOf("MEMBERS=") === -1) {
+    return null;
+  }
+  var titleM = note.match(/TITLE=(.*)/);
+  var kwM = note.match(/KEYWORDS=(.*)/);
+  var memM = note.match(/MEMBERS=(.*)/);
+  var keywords = [];
+  if (kwM && kwM[1].length > 0) {
+    var parts = kwM[1].split(",");
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i].replace(/^\s+|\s+$/g, "");
+      if (p.length > 0) keywords.push(p);
+    }
+  }
+  var members = [];
+  if (memM && memM[1].length > 0) {
+    var mp = memM[1].split(",");
+    for (var j = 0; j < mp.length; j++) {
+      var mm = mp[j].replace(/^\s+|\s+$/g, "");
+      if (mm.length > 0) members.push(mm);
+    }
+  }
+  return {
+    setId: "",
+    createdAt: "",
+    modifiedAt: "",
+    members: members,
+    title: titleM ? titleM[1] : "",
+    keywords: keywords
+  };
+}
+
+// Current local timestamp for createdAt / modifiedAt (YYYY-MM-DD HH:MM:SS).
+function metaNow() {
+  var d = new Date();
+  function p(n) {
+    return (n < 10 ? "0" : "") + n;
+  }
+  return (
+    d.getFullYear() +
+    "-" + p(d.getMonth() + 1) +
+    "-" + p(d.getDate()) +
+    " " + p(d.getHours()) +
+    ":" + p(d.getMinutes()) +
+    ":" + p(d.getSeconds())
+  );
+}
+
+// Generate a short random hex ID (no external dependencies).
+function generateVfId() {
+  var s = "";
+  for (var i = 0; i < 8; i++) {
+    s += Math.floor(Math.random() * 16).toString(16);
+  }
+  return s;
+}
+
+// --- Shared: stable per-element identity (id) ---
+// Read the element's id via the central loader (handles all versions).
+function getVfId(item) {
+  try {
+    return loadElementMetadata(item.note || "").id || "";
+  } catch (e) {
+    return "";
+  }
+}
+
+// Store the id into the element's metadata (loader preserves other fields).
+function setVfId(item, id) {
+  try {
+    var meta = loadElementMetadata(item.note || "");
+    meta.version = ELEMENT_METADATA_VERSION;
+    meta.id = id;
+    item.note = jsonStringify(meta);
+  } catch (e) {}
+}
+
+// Ensure the item has an id; assign a new one if missing. Returns the id.
+function ensureVfId(item) {
+  var id = getVfId(item);
+  if (!id) {
+    id = generateVfId();
+    setVfId(item, id);
+  }
+  return id;
+}
+
+// --- ELEMENT METADATA (single JSON object in the element's own note) ---
+// Read an element's metadata via the central loader. Returns
+// { objectName, keywords:[] } (empty values if none / malformed).
+function getElementMeta(item) {
+  try {
+    var meta = loadElementMetadata(item.note || "");
+    return { objectName: meta.objectName, keywords: meta.keywords };
+  } catch (e) {
+    return { objectName: "", keywords: [] };
+  }
+}
+
+// Write an element's metadata: load (migrate) the existing record,
+// update the fields, and write back as current-version JSON. `keywords`
+// is an array of strings; a missing id is assigned automatically.
+function setElementMeta(item, objectName, keywords) {
+  try {
+    var meta = loadElementMetadata(item.note || "");
+    meta.version = ELEMENT_METADATA_VERSION;
+    meta.objectName = objectName || "";
+    meta.keywords = normalizeStringArray(keywords);
+    if (!meta.id) meta.id = generateVfId();
+    item.note = jsonStringify(meta);
+  } catch (e) {}
+}
+
+// --- SET METADATA (hidden VF_METADATA layer) ---
+// The permanent hidden layer that holds one SET_<setid> text frame per Set.
+// Renamed from MASTER_METADATA: it now stores general plugin data
+// (Sets and future technical records), not only MASTER metadata.
+function getMetadataLayer(doc) {
+  var layer = getLayer(doc, "VF_METADATA");
+  if (!layer) {
+    // Migrate an old MASTER_METADATA layer so existing Sets are kept.
+    var old = getLayer(doc, "MASTER_METADATA");
+    if (old) {
+      old.name = "VF_METADATA";
+      layer = old;
+    } else {
+      layer = doc.layers.add();
+      layer.name = "VF_METADATA";
+    }
+  }
+  layer.visible = false;
+  layer.locked = false;
+  // A sub-layer inside a locked parent layer is still not modifiable, so
+  // unlock every ancestor layer as well — otherwise textFrames.add() throws
+  // "Cannot modify a layer that is locked" even though this layer is unlocked.
+  // This MUST run for the migrated layer too, so do NOT return early above.
+  var p = layer.parent;
+  while (p && p.typename === "Layer") {
+    p.locked = false;
+    p = p.parent;
+  }
+  return layer;
+}
+
+// One hidden text frame per Set, named "SET_<setid>", stores its data as a
+// single object in the note (see createSet / setSetMeta).
+function getSetFrame(doc, setId, create) {
+  var layer = getMetadataLayer(doc);
+  for (var i = 0; i < layer.textFrames.length; i++) {
+    if (layer.textFrames[i].name === "SET_" + setId) {
+      return layer.textFrames[i];
+    }
+  }
+  if (!create) return null;
+  // Illustrator only allows adding page items to the document's activeLayer.
+  // If another layer (e.g. ARTWORK) is active, layer.textFrames.add() throws
+  // Error 9024 ("Cannot modify a layer that is locked") even though this layer
+  // is unlocked — the message is misleading. Make VF_METADATA active first.
+  doc.activeLayer = layer;
+  // A hidden layer cannot receive new page items (Error 9024), so briefly
+  // make it visible, add the frame, then restore the original visibility.
+  var wasVisible = layer.visible;
+  layer.visible = true;
+  var tf = layer.textFrames.add();
+  layer.visible = wasVisible;
+  tf.name = "SET_" + setId;
+  tf.contents = "";
+  tf.note = "";
+  return tf;
+}
+
+// Create a Set from an ordered list of member items. Assigns/ensures an id
+// for each member, records them in selection order, and returns the new
+// Set id. Title / keywords start empty; createdAt/modifiedAt are stamped.
+function createSet(memberItems) {
+  var doc = app.activeDocument;
+  var setId = generateVfId();
+  var memberIds = [];
+  for (var i = 0; i < memberItems.length; i++) {
+    memberIds.push(ensureVfId(memberItems[i]));
+  }
+  var now = metaNow();
+  var obj = {
+    version: SET_METADATA_VERSION,
+    setId: setId,
+    createdAt: now,
+    modifiedAt: now,
+    members: memberIds,
+    title: "",
+    keywords: []
+  };
+  var tf = getSetFrame(doc, setId, true);
+  tf.note = jsonStringify(obj);
+  return setId;
+}
+
+// Read a Set record, or null if none. Returns the latest schema
+// { setId, createdAt, modifiedAt, title, keywords:[], members:[id,...] }
+// (members in stored order). All version detection/migration is done
+// by loadSetMetadata().
+function getSetMeta(setId) {
+  var doc = app.activeDocument;
+  var tf = getSetFrame(doc, setId, false);
+  if (!tf) return null;
+  var meta = loadSetMetadata(tf.note || "");
+  meta.setId = meta.setId || setId; // report the requested id
+  return meta;
+}
+
+// Save (or update) a Set's Title and Keywords. Member order and the
+// system timestamps are preserved/updated; createdAt is kept.
+function setSetMeta(setId, title, keywords) {
+  var doc = app.activeDocument;
+  var tf = getSetFrame(doc, setId, false);
+  if (!tf) return;
+  var meta = loadSetMetadata(tf.note || "");
+  meta.version = SET_METADATA_VERSION;
+  meta.setId = setId;
+  meta.modifiedAt = metaNow();
+  if (!meta.createdAt) meta.createdAt = metaNow();
+  meta.title = title || "";
+  meta.keywords = normalizeStringArray(keywords);
+  if (!meta.members) meta.members = [];
+  tf.note = jsonStringify(meta);
+}
+
+// Collect every Set record currently stored, as a map setId -> record.
+function getAllSets() {
+  var doc = app.activeDocument;
+  var layer = getMetadataLayer(doc);
+  var out = {};
+  for (var i = 0; i < layer.textFrames.length; i++) {
+    var tf = layer.textFrames[i];
+    var m = tf.name.match(/^SET_(.+)$/);
+    if (!m) continue;
+    out[m[1]] = getSetMeta(m[1]);
+  }
+  return out;
+}
+
+// Scan the given source layers and return the metadata for every artwork whose
+// bounds fall inside `abRect`. Used during export to build per-artboard titles
+// and keywords. Returns { objectNames: [], keywords: [] } (deduplicated).
+// Reads ELEMENT metadata (now stored in each element's note).
+function collectArtboardMetadata(doc, abRect, layers) {
+  var namesSeen = {};
+  var kwSeen = {};
+  var objectNames = [];
+  var keywords = [];
+
+  for (var li = 0; li < layers.length; li++) {
+    var layer = layers[li];
+    if (!layer) continue;
+    for (var i = 0; i < layer.pageItems.length; i++) {
+      var item = layer.pageItems[i];
+      if (!isInArtboard(item.geometricBounds, abRect)) continue;
+      var meta = getElementMeta(item);
+      if (meta.objectName && !namesSeen[meta.objectName]) {
+        namesSeen[meta.objectName] = true;
+        objectNames.push(meta.objectName);
+      }
+      for (var k = 0; k < meta.keywords.length; k++) {
+        if (!kwSeen[meta.keywords[k]]) {
+          kwSeen[meta.keywords[k]] = true;
+          keywords.push(meta.keywords[k]);
+        }
+      }
+    }
+  }
+  return { objectNames: objectNames, keywords: keywords };
+}
+
+// True if the bounds are inside the artboard at all (used by export).
+function isInArtboard(b, abRect) {
+  var cx = (b[0] + b[2]) / 2;
+  var cy = (b[1] + b[3]) / 2;
+  return (
+    cx >= abRect[0] && cx <= abRect[2] && cy <= abRect[1] && cy >= abRect[3]
+  );
+}
+
+// ===== Metadata public API =====
+// Named wrappers over the storage primitives above. Element metadata is
+// keyed by the element itself (stored in its note); Set metadata is keyed
+// by a Set id (stored in MASTER_METADATA). The two are independent.
+
+// Ensure the artwork has a permanent VF_ID (stored in its note).
+// Returns the id. Call this whenever artwork enters MASTER.
+function ensureArtworkId(item) {
+  return ensureVfId(item);
+}
+
+// Read the artwork's VF_ID from its note, or "" if none.
+function getArtworkId(item) {
+  return getVfId(item);
+}
+
+// Read the element's own metadata: { objectName, keywords } or null.
+function getArtworkMetadata(vfid) {
+  // Element metadata is now stored in the element's note, not in a frame
+  // keyed by VF_ID, so we resolve the item by VF_ID first.
+  var item = findItemByVfId(vfid);
+  return item ? getElementMeta(item) : null;
+}
+
+// Save (or update) the element's own metadata.
+function setArtworkMetadata(vfid, objectName, keywords) {
+  var item = findItemByVfId(vfid);
+  if (item) setElementMeta(item, objectName, keywords);
+}
+
+// Resolve a PageItem by its VF_ID (linear scan; documents are small).
+function findItemByVfId(vfid) {
+  if (!vfid || app.documents.length === 0) return null;
+  var doc = app.activeDocument;
+  for (var i = 0; i < doc.pageItems.length; i++) {
+    if (getVfId(doc.pageItems[i]) === vfid) return doc.pageItems[i];
+  }
+  return null;
+}

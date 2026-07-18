@@ -11,44 +11,128 @@
 
   <body>
     <div id="app">
-      <section class="panel-section">
-        <div class="section-title">Element</div>
-        <div id="previewBox">
-          <img id="preview" alt="Current element preview" />
-          <div class="preview-empty">No preview</div>
-        </div>
-        <button id="setElement">Set Element</button>
-      </section>
+      <div class="tabs">
+        <button class="tab active" data-tab="tools">Tools</button>
+        <button class="tab" data-tab="metadata">Metadata</button>
+      </div>
 
-      <section class="panel-section">
-        <div class="section-title">Generate</div>
-        <div class="row">
-          <button id="clear">Clear</button>
-          <button id="toggle">Hide</button>
-          <button id="remapBtn" class="export">Remap</button>
-        </div>
-        <div class="gen-row">
-          <button id="generate" class="primary">Generate all</button>
-          <button id="generateS" class="primary">Blacks only</button>
-          <button id="generateSK" class="primary">Colors only</button>
-        </div>
-      </section>
+      <!-- Tools tab: existing Generate / Export workflow (unchanged) -->
+      <div id="tab-tools">
+        <section class="panel-section">
+          <div class="section-title">Element</div>
+          <div id="previewBox">
+            <img id="preview" alt="Current element preview" />
+            <div class="preview-empty">No preview</div>
+          </div>
+          <button id="setElement">Set Element</button>
+        </section>
 
-      <section class="panel-section">
-        <div class="section-title">Export</div>
-        <input id="prefix" type="text" placeholder="Filename Prefix" />
-        <div class="path-row">
-          <input
-            id="exportPath"
-            type="text"
-            placeholder="Export folder"
-            readonly
-          />
-          <button id="choosePathBtn" class="export">Choose Folder</button>
-        </div>
-        <button id="exportBtn" class="export">Export</button>
-        <button id="exportSelectedBtn" class="export">Export Selected</button>
-      </section>
+        <section class="panel-section">
+          <div class="section-title">Generate</div>
+          <div class="row">
+            <button id="clear">Clear</button>
+            <button id="toggle">Hide</button>
+            <button id="remapBtn" class="export">Remap</button>
+          </div>
+          <div class="gen-row">
+            <button id="generate" class="primary">Generate all</button>
+            <button id="generateS" class="primary">Blacks only</button>
+            <button id="generateSK" class="primary">Colors only</button>
+          </div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-title">Export</div>
+          <input id="prefix" type="text" placeholder="Filename Prefix" />
+          <div class="path-row">
+            <input
+              id="exportPath"
+              type="text"
+              placeholder="Export folder"
+              readonly
+            />
+            <button id="choosePathBtn" class="export">Choose Folder</button>
+          </div>
+          <button id="exportBtn" class="export">Export</button>
+          <button id="exportSelectedBtn" class="export">Export Selected</button>
+        </section>
+      </div>
+
+      <!-- Metadata tab: per-artboard AND per-artwork metadata in one place -->
+      <div id="tab-metadata" class="hidden">
+        <section class="panel-section">
+          <div class="section-title">Artboard Metadata</div>
+          <div id="metaArtboardName" class="meta-ab-name">No artboard</div>
+          <label class="meta-label" for="metaTitle">Title Template</label>
+          <textarea
+            id="metaTitle"
+            class="meta-field"
+            rows="3"
+            placeholder="e.g. Icon set of * isolated on white background"
+          ></textarea>
+          <label class="meta-label" for="metaKeywords">Keywords Template</label>
+          <textarea
+            id="metaKeywords"
+            class="meta-field"
+            rows="3"
+            placeholder="e.g. icon, isolated, vector"
+          ></textarea>
+          <div id="metaStatus" class="meta-status"></div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-title">ART data</div>
+          <div id="awVfid" class="meta-ab-name">No artwork selected</div>
+          <label class="meta-label" for="awName">Object Name</label>
+          <textarea
+            id="awName"
+            class="meta-field"
+            rows="3"
+            placeholder="e.g. Red apple"
+          ></textarea>
+          <label class="meta-label" for="awKeywords">Keywords</label>
+          <textarea
+            id="awKeywords"
+            class="meta-field"
+            rows="3"
+            placeholder="e.g. apple, fruit, red"
+          ></textarea>
+          <button id="findKeywords" class="export" disabled title="Coming soon">
+            Find Keywords
+          </button>
+          <div id="awStatus" class="meta-status"></div>
+        </section>
+
+        <section class="panel-section">
+          <div class="section-title">Set</div>
+          <div id="setInfo" class="meta-ab-name">
+            Select 2+ elements, then Set Object
+          </div>
+          <button id="setObject" class="export">Set Object</button>
+          <button id="deleteAllSets" class="export">Delete All</button>
+          <div id="setFields" class="hidden">
+            <label class="meta-label" for="setMembers"
+              >Members (order kept)</label
+            >
+            <div id="setMembers" class="meta-members"></div>
+            <label class="meta-label" for="setTitle">Title</label>
+            <textarea
+              id="setTitle"
+              class="meta-field"
+              rows="2"
+              placeholder="e.g. Red Apple Icon"
+            ></textarea>
+            <label class="meta-label" for="setKeywords">Keywords</label>
+            <textarea
+              id="setKeywords"
+              class="meta-field"
+              rows="3"
+              placeholder="e.g. apple icon, botanical"
+            ></textarea>
+            <div id="setStatus" class="meta-status"></div>
+          </div>
+        </section>
+      </div>
 
       <div id="status">Ready</div>
     </div>

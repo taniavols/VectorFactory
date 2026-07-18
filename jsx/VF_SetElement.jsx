@@ -1,5 +1,7 @@
 ﻿#target illustrator
 
+$.evalFile(File($.fileName).parent + "/VF_Common.jsx");
+
 if (app.documents.length === 0) exit();
 
 var doc = app.activeDocument;
@@ -32,6 +34,9 @@ for (var n = 0; n < sel.length; n++) {
   item.move(masterLayer, ElementPlacement.PLACEATEND);
   // First object keeps the plain "MASTER" name (== MASTER1) for compatibility.
   item.name = n === 0 ? "MASTER" : "MASTER" + (n + 1);
+  // Assign a permanent identity that survives rename / duplicate / copy.
+  // Every artwork entering MASTER must receive a VF_ID (audit requirement).
+  ensureArtworkId(item);
 }
 masterLayer.zOrder(ZOrderMethod.BRINGTOFRONT);
 

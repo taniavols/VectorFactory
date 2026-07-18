@@ -328,7 +328,7 @@ function selectExportFolder(startPath) {
   return f.fsName;
 }
 
-function exportArtboards(prefix, selectedIndices, folderPath) {
+function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) {
   VF_ERRORS = [];
   VF_SUCCESS = "";
 
@@ -340,6 +340,17 @@ function exportArtboards(prefix, selectedIndices, folderPath) {
   if (!prefix || prefix.length === 0) {
     prefix = prompt("Enter Filename Prefix:");
     if (!prefix || prefix.length === 0) prefix = "export";
+  }
+
+  // Artboard templates (title/keywords) come from the project .vfmeta file,
+  // passed in by the panel as a JSON object string keyed by artboard name.
+  var artboardMeta = {};
+  if (artboardMetaJson && artboardMetaJson.length > 0) {
+    try {
+      artboardMeta = eval("(" + artboardMetaJson + ")");
+    } catch (e) {
+      artboardMeta = {};
+    }
   }
 
   // Use the folder chosen in the panel UI when provided; otherwise fall back
@@ -549,6 +560,25 @@ function exportArtboards(prefix, selectedIndices, folderPath) {
   }
 
   srcDoc.activate();
+
+  // Build ONE metadata.svg for the whole export, combining each artboard's
+  // template (from .vfmeta) with the generated artwork metadata (from
+  // MASTER_METADATA). Skipped silently if no artwork metadata exists.
+  try {
+    buildMetadataSvg(
+      srcDoc,
+      exportFolder,
+      prefix,
+      indices,
+      abNames,
+      abRects,
+      [fgLayer, plLayer, bgLayer],
+      artboardMeta,
+    );
+  } catch (e) {
+    vfError("Metadata SVG failed: " + e.message);
+  }
+
   vfSuccess(
     "Export complete: " +
       indices.length +
@@ -557,4 +587,108 @@ function exportArtboards(prefix, selectedIndices, folderPath) {
       ". For each artboard an EPS + JPG preview pair was created, scaled to 25 MP.",
   );
   return vfResult();
+}
+
+// Build a single metadata.svg next to the exported files. For each exported
+// artboard: title = titleTemplate with "*" replaced by the joined generated
+// object names; keywords = template keywords + generated keywords (deduped,
+// template first). Writes <artboard> groups with <title>/<text> children.
+function buildMetadataSvg(
+  doc,
+  exportFolder,
+  prefix,
+  indices,
+  abNames,
+  abRects,
+  layers,
+  artboardMeta,
+) {
+  var entries = [];
+  for (var i = 0; i < indices.length; i++) {
+    var a = indices[i];
+    var abName = abNames[a] || "artboard_" + a;
+    var meta = artboardMeta[abName] || {};
+    var titleTemplate = meta.titleTemplate || "";
+    var kwTemplate = meta.keywordsTemplate || "";
+
+    // Generated artwork metadata for this artboard.
+    var collected = collectArtboardMetadata(doc, abRects[a], layers);
+    var objectNames = collected.objectNames;
+    var generatedKw = collected.keywords;
+
+    // Title: replace "*" with the joined object names.
+    var title = titleTemplate;
+    if (title.length > 0) {
+      title = title.replace(/\*/g, objectNames.join(", "));
+    } else {
+      title = objectNames.join(", ");
+    }
+
+    // Keywords: template first, then generated, deduped.
+    var tmplKw = [];
+    if (kwTemplate.length > 0) {
+      var parts = kwTemplate.split(",");
+      for (var p = 0; p < parts.length; p++) {
+        var t = parts[p].replace(/^\s+|\s+$/g, "");
+        if (t.length > 0) tmplKw.push(t);
+      }
+    }
+    var seen = {};
+    var keywords = [];
+    for (var k = 0; k < tmplKw.length; k++) {
+      if (!seen[tmplKw[k]]) {
+        seen[tmplKw[k]] = true;
+        keywords.push(tmplKw[k]);
+      }
+    }
+    for (var g = 0; g < generatedKw.length; g++) {
+      if (!seen[generatedKw[g]]) {
+        seen[generatedKw[g]] = true;
+        keywords.push(generatedKw[g]);
+      }
+    }
+
+    entries.push(
+      '  <g class="artboard" data-name="' +
+        vfEscapeXml(abName) +
+        '">\n' +
+        "    <title>" +
+        vfEscapeXml(title) +
+        "</title>\n" +
+        '    <text class="keywords">' +
+        vfEscapeXml(keywords.join(", ")) +
+        "</text>\n" +
+        "  </g>",
+    );
+  }
+
+  if (entries.length === 0) return;
+
+  var svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="adobe:stock:meta">\n' +
+    entries.join("\n") +
+    "\n</svg>\n";
+
+  var svgFile = new File(exportFolder.fsName + "/" + sanitizeFilename(prefix) + "_metadata.svg");
+  svgFile.open("w");
+  svgFile.write(svg);
+  svgFile.close();
+}
+
+// Escape a string for inclusion inside XML/SVG text content. Built from char
+// codes so the source contains no raw entity literals (which the editor would
+// otherwise mangle). amp=38, lt=60, gt=62, quot=34.
+function vfEscapeXml(s) {
+  var amp = String.fromCharCode(38);
+  var str = String(s);
+  var out = "";
+  for (var i = 0; i < str.length; i++) {
+    var c = str.charAt(i);
+    if (c === amp) out += amp + "amp;";
+    else if (c === "<") out += amp + "lt;";
+    else if (c === ">") out += amp + "gt;";
+    else if (c === '"') out += amp + "quot;";
+    else out += c;
+  }
+  return out;
 }
