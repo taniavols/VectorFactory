@@ -11,6 +11,9 @@
         <Extension
             Id="com.vectorfactory.panel"
             Version="1.0.0"/>
+        <Extension
+            Id="com.vectorfactory.metadata"
+            Version="1.0.0"/>
     </ExtensionList>
 
     <ExecutionEnvironment>
@@ -43,6 +46,10 @@
 
                     <ScriptPath>./jsx/VF_Common.jsx</ScriptPath>
 
+                    <ScriptPath>./jsx/VF_ArtboardMeta.jsx</ScriptPath>
+
+                    <ScriptPath>./jsx/VF_ArtworkMeta.jsx</ScriptPath>
+
                 </Resources>
 
                 <Lifecycle>
@@ -56,6 +63,68 @@
                     <Type>Panel</Type>
 
                     <Menu>Vector Factory</Menu>
+
+                    <Geometry>
+
+                        <Size>
+
+                            <Width>240</Width>
+
+                            <Height>520</Height>
+
+                        </Size>
+
+                        <MinSize>
+
+                            <Width>200</Width>
+
+                            <Height>400</Height>
+
+                        </MinSize>
+
+                        <MaxSize>
+
+                            <Width>600</Width>
+
+                            <Height>2000</Height>
+
+                        </MaxSize>
+
+                    </Geometry>
+
+                </UI>
+
+            </DispatchInfo>
+
+        </Extension>
+
+        <Extension Id="com.vectorfactory.metadata">
+
+            <DispatchInfo>
+
+                <Resources>
+
+                    <MainPath>./metadata.html</MainPath>
+
+                    <ScriptPath>./jsx/VF_Common.jsx</ScriptPath>
+
+                    <ScriptPath>./jsx/VF_ArtboardMeta.jsx</ScriptPath>
+
+                    <ScriptPath>./jsx/VF_ArtworkMeta.jsx</ScriptPath>
+
+                </Resources>
+
+                <Lifecycle>
+
+                    <AutoVisible>true</AutoVisible>
+
+                </Lifecycle>
+
+                <UI>
+
+                    <Type>Panel</Type>
+
+                    <Menu>Vector Factory Metadata</Menu>
 
                     <Geometry>
 

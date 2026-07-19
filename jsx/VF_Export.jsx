@@ -7,6 +7,40 @@ var TARGET_EXPORT_PIXELS = 25000000;
 // run on each so the live effect is baked into geometry. Reset per artboard.
 var gEffectGroups = [];
 
+// ---- Export audit logging (temporary, for diagnosing source-file corruption) ----
+// Writes a line to export_debug.log next to the extension. Used to trace
+// exactly which document is active / saved / closed at each step so we can
+// pinpoint where the ORIGINAL document gets corrupted. Safe no-op if the
+// file cannot be opened.
+var _exportLogPath = null;
+function exportLog(msg) {
+  try {
+    if (_exportLogPath === null) {
+      // Place the log in the extension folder (same dir as the JSX files).
+      _exportLogPath = File($.fileName).parent + "/export_debug.log";
+    }
+    var f = new File(_exportLogPath);
+    f.open("a"); // append
+    f.writeln("[" + (new Date()).toLocaleTimeString() + "] " + msg);
+    f.close();
+  } catch (e) {}
+}
+
+// Short snapshot of the active document state for the log.
+function _docState(label) {
+  var ad = null;
+  try { ad = app.activeDocument; } catch (e) {}
+  var info = label + ": activeDoc=";
+  if (ad) {
+    info += '"' + ad.name + '"';
+    try { info += " path=" + (ad.fullName || "(unsaved)"); } catch (e) {}
+    try { info += " modified=" + ad.modified; } catch (e) {}
+  } else {
+    info += "(none)";
+  }
+  return info;
+}
+
 function sanitizeFilename(name) {
   name = name.replace(/[^a-zA-Z0-9_ ]/g, "");
   name = name.replace(/ /g, "_");
@@ -328,7 +362,7 @@ function selectExportFolder(startPath) {
   return f.fsName;
 }
 
-function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) {
+function exportArtboards(prefix, selectedIndices, folderPath) {
   VF_ERRORS = [];
   VF_SUCCESS = "";
 
@@ -342,17 +376,6 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
     if (!prefix || prefix.length === 0) prefix = "export";
   }
 
-  // Artboard templates (title/keywords) come from the project .vfmeta file,
-  // passed in by the panel as a JSON object string keyed by artboard name.
-  var artboardMeta = {};
-  if (artboardMetaJson && artboardMetaJson.length > 0) {
-    try {
-      artboardMeta = eval("(" + artboardMetaJson + ")");
-    } catch (e) {
-      artboardMeta = {};
-    }
-  }
-
   // Use the folder chosen in the panel UI when provided; otherwise fall back
   // to a folder picker (keeps the old behavior if called without a path).
   var exportFolder = null;
@@ -363,7 +386,14 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
   }
   if (!exportFolder) return vfResult();
 
+  // Guarantee the panel always receives a result, even if anything below
+  // throws (e.g. saveAs/exportFile inside the loop). Without this, an
+  // exception would abort the function, the evalScript callback would never
+  // fire, and the export lock would never be released.
+  try {
   var srcDoc = app.activeDocument;
+  exportLog("=== exportArtboards START ===");
+  exportLog(_docState("before-export") + " srcDoc.name=" + srcDoc.name + " srcDoc.modified=" + srcDoc.modified);
   var abCount = srcDoc.artboards.length;
   var abNames = [];
   var abRects = [];
@@ -383,7 +413,7 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
   var fgLayer = getLayerByName(srcDoc, "FG");
 
   var bgItems = [];
-  if (bgLayer && !bgLayer.guideLayer) {
+  if (bgLayer && !bgLayer.guideLayer && bgLayer.name !== "VF_METADATA") {
     for (var bi = 0; bi < bgLayer.pageItems.length; bi++) {
       bgItems.push({
         item: bgLayer.pageItems[bi],
@@ -393,7 +423,7 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
   }
 
   var fgItems = [];
-  if (fgLayer && !fgLayer.guideLayer) {
+  if (fgLayer && !fgLayer.guideLayer && fgLayer.name !== "VF_METADATA") {
     for (var fi = 0; fi < fgLayer.pageItems.length; fi++) {
       fgItems.push({
         item: fgLayer.pageItems[fi],
@@ -403,7 +433,7 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
   }
 
   var plItems = [];
-  if (plLayer && !plLayer.guideLayer) {
+  if (plLayer && !plLayer.guideLayer && plLayer.name !== "VF_METADATA") {
     for (var i = 0; i < plLayer.pageItems.length; i++) {
       var item = plLayer.pageItems[i];
 
@@ -482,11 +512,13 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
     // transfers; they are expanded once, after all copies, below.
     gEffectGroups = [];
 
+    exportLog(_docState("before-documents.add") + " (artboard " + a + ": " + abName + ")");
     var tempDoc = app.documents.add(
       DocumentColorSpace.RGB,
       exportWidth,
       exportHeight,
     );
+    exportLog(_docState("after-documents.add") + " tempDoc.name=" + tempDoc.name + " tempDoc.typename=" + tempDoc.typename);
     tempDoc.artboards[0].artboardRect = [0, exportHeight, exportWidth, 0];
     var exportLayer = tempDoc.layers[0];
 
@@ -524,6 +556,7 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
     // tempDoc уже активен сразу после app.documents.add(), поэтому лишний
     // activate() (переключение контекста) и лишний сброс выделения перед
     // selectall убраны — selectall сам очищает выделение.
+    exportLog(_docState("before-selectall/outline/contour") + " EXPECTED tempDoc=" + tempDoc.name);
     app.executeMenuCommand("selectall");
 
     // Создать кривые из текста
@@ -545,7 +578,9 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
     epsOptions.compatibility = Compatibility.ILLUSTRATOR10;
     epsOptions.embedLinkedFiles = true;
     epsOptions.embedAllFonts = false;
+    exportLog(_docState("before-saveAs") + " target=" + saveFile.fsName + " target.typename=" + saveFile.constructor.name);
     tempDoc.saveAs(saveFile, epsOptions);
+    exportLog(_docState("after-saveAs") + " tempDoc.fullName=" + (tempDoc.fullName || "(unsaved)"));
 
     // JPG preview with the same base name (EPS + JPG pair for Adobe Stock).
     var previewFile = new File(exportFolder.fsName + "/" + safeName + ".jpg");
@@ -554,18 +589,22 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
     jpgOptions.qualitySetting = 100;
     jpgOptions.horizontalScale = 100;
     jpgOptions.verticalScale = 100;
+    exportLog(_docState("before-exportFile") + " target=" + previewFile.fsName);
     tempDoc.exportFile(previewFile, ExportType.JPEG, jpgOptions);
+    exportLog(_docState("after-exportFile"));
 
+    exportLog(_docState("before-close") + " closing tempDoc=" + tempDoc.name);
     tempDoc.close(SaveOptions.DONOTSAVECHANGES);
+    exportLog(_docState("after-close"));
   }
 
+  exportLog(_docState("before-srcDoc.activate") + " srcDoc.name=" + srcDoc.name);
   srcDoc.activate();
+  exportLog(_docState("after-srcDoc.activate") + " srcDoc.name=" + srcDoc.name + " srcDoc.modified=" + srcDoc.modified);
 
-  // Build ONE metadata.svg for the whole export, combining each artboard's
-  // template (from .vfmeta) with the generated artwork metadata (from
-  // MASTER_METADATA). Skipped silently if no artwork metadata exists.
+  // Build ONE Adobe Stock CSV for the whole export (one row per artboard).
   try {
-    buildMetadataSvg(
+    buildStockCsv(
       srcDoc,
       exportFolder,
       prefix,
@@ -573,10 +612,9 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
       abNames,
       abRects,
       [fgLayer, plLayer, bgLayer],
-      artboardMeta,
     );
   } catch (e) {
-    vfError("Metadata SVG failed: " + e.message);
+    vfError("Stock CSV failed: " + e.message);
   }
 
   vfSuccess(
@@ -586,14 +624,29 @@ function exportArtboards(prefix, selectedIndices, folderPath, artboardMetaJson) 
       (indices.length === abCount ? "" : " (of " + abCount + ")") +
       ". For each artboard an EPS + JPG preview pair was created, scaled to 25 MP.",
   );
-  return vfResult();
+  exportLog(_docState("after-export-all") + " srcDoc.name=" + srcDoc.name + " srcDoc.modified=" + srcDoc.modified + " srcDoc.fullName=" + (srcDoc.fullName || "(unsaved)"));
+  exportLog("=== exportArtboards END ===");
+  } catch (e) {
+    // Any unexpected error during export is reported (not thrown), so the
+    // panel's evalScript callback always fires and the lock is released.
+    vfError("Export failed: " + e.message);
+  } finally {
+    // Always return a result string to the panel, even on failure.
+    return vfResult();
+  }
 }
 
-// Build a single metadata.svg next to the exported files. For each exported
-// artboard: title = titleTemplate with "*" replaced by the joined generated
-// object names; keywords = template keywords + generated keywords (deduped,
-// template first). Writes <artboard> groups with <title>/<text> children.
-function buildMetadataSvg(
+// Build a single Adobe Stock CSV next to the exported files. One row per
+// exported artboard. Columns: Filename, Title, Keywords, Category, Releases.
+//   - Filename: <prefix>_<artboard>.eps (matches the exported EPS file).
+//   - Title: if the artboard template contains "*", replace it with the
+//     object/Set title; otherwise prepend the object/Set title to the
+//     artboard title. The object/Set title always goes first.
+//   - Keywords: [object/Set keywords] + [artboard keywords], deduped, ", ".
+//   - Category / Releases: left empty (not used by the current export).
+// Before writing, each artboard is validated; any problems are collected and
+// reported in the status line (export is NOT aborted, CSV is still written).
+function buildStockCsv(
   doc,
   exportFolder,
   prefix,
@@ -601,78 +654,195 @@ function buildMetadataSvg(
   abNames,
   abRects,
   layers,
-  artboardMeta,
 ) {
-  var entries = [];
+  var rows = [];
+  rows.push(
+    csvEscapeCell("Filename") +
+      "," +
+      csvEscapeCell("Title") +
+      "," +
+      csvEscapeCell("Keywords") +
+      "," +
+      csvEscapeCell("Category") +
+      "," +
+      csvEscapeCell("Releases"),
+  );
+
+  var problems = [];
+
   for (var i = 0; i < indices.length; i++) {
     var a = indices[i];
     var abName = abNames[a] || "artboard_" + a;
-    var meta = artboardMeta[abName] || {};
-    var titleTemplate = meta.titleTemplate || "";
-    var kwTemplate = meta.keywordsTemplate || "";
+    var abMeta = getArtboardMeta(abName) || {};
+    var abTitleTpl = abMeta.title || "";
+    var abKeywords = abMeta.keywords || [];
 
     // Generated artwork metadata for this artboard.
     var collected = collectArtboardMetadata(doc, abRects[a], layers);
     var objectNames = collected.objectNames;
-    var generatedKw = collected.keywords;
+    var objKeywords = collected.keywords;
 
-    // Title: replace "*" with the joined object names.
-    var title = titleTemplate;
-    if (title.length > 0) {
-      title = title.replace(/\*/g, objectNames.join(", "));
+    var primaryTitle = ""; // object title (1) or Set title (>1)
+    var primaryKeywords = []; // object or Set keywords (come first)
+    var setFound = true;
+
+    if (objectNames.length === 0) {
+      // No artwork on this artboard: nothing to prepend.
+    } else if (objectNames.length === 1) {
+      primaryTitle = objectNames[0];
+      primaryKeywords = objKeywords;
     } else {
-      title = objectNames.join(", ");
-    }
-
-    // Keywords: template first, then generated, deduped.
-    var tmplKw = [];
-    if (kwTemplate.length > 0) {
-      var parts = kwTemplate.split(",");
-      for (var p = 0; p < parts.length; p++) {
-        var t = parts[p].replace(/^\s+|\s+$/g, "");
-        if (t.length > 0) tmplKw.push(t);
+      // Multiple objects: find the Set whose members EXACTLY match the set of
+      // object ids on this artboard (no more, no fewer). We never pick a Set
+      // that contains only a subset or has extra members not on the board.
+      // The VF_ID collection is RECURSIVE so nested groups are included.
+      var boardVfids = [];
+      for (var oi = 0; oi < layers.length; oi++) {
+        collectArtboardVfIds(layers[oi], abRects[a], boardVfids);
+      }
+      // ---- TEMP DIAGNOSTICS (export matching) ----
+      // Dump what the artboard actually contains vs every saved Set, so we can
+      // see exactly why "Matching Set not found" fires. Written to
+      // export_debug.log next to the extension. Remove once root-caused.
+      try {
+        exportLog(
+          '[CSV-MATCH] artboard "' +
+            abName +
+            '" boardVfids=' +
+            jsonStringify(boardVfids),
+        );
+        var _allSets = getAllSets();
+        for (var _sid in _allSets) {
+          var _s = _allSets[_sid];
+          exportLog(
+            '[CSV-MATCH]   Set ' +
+              _sid +
+              ' members=' +
+              jsonStringify(_s ? _s.members : null) +
+              ' title=' +
+              jsonStringify(_s ? _s.title : ""),
+          );
+        }
+      } catch (e) {}
+      // ---- END TEMP DIAGNOSTICS ----
+      var matches = findSetsWithExactMembers(boardVfids);
+      if (matches.length === 0) {
+        setFound = false;
+        problems.push('Artboard "' + abName + '": Matching Set not found.');
+      } else {
+        // Pick the MOST SPECIFIC match (largest member count). A board built
+        // from a Set "recipe" usually contains extra generated objects, so
+        // several Sets may be subsets; the largest one is the intended
+        // composition. A tie at the max count is a genuine ambiguity.
+        var best = matches[0];
+        var tie = false;
+        for (var mi = 1; mi < matches.length; mi++) {
+          var cnt = (matches[mi].members || []).length;
+          var bestCnt = (best.members || []).length;
+          if (cnt > bestCnt) {
+            best = matches[mi];
+            tie = false;
+          } else if (cnt === bestCnt) {
+            tie = true;
+          }
+        }
+        if (tie) {
+          setFound = false;
+          problems.push('Artboard "' + abName + '": Multiple matching Sets found.');
+        } else {
+          primaryTitle = best.title || "";
+          primaryKeywords = best.keywords || [];
+        }
       }
     }
+
+    // ---- Validation (collect problems, do not abort) ----
+    if (abTitleTpl.length === 0) {
+      problems.push('Artboard "' + abName + '": Title Artboard is empty.');
+    }
+    if (abKeywords.length === 0) {
+      problems.push('Artboard "' + abName + '": Keywords Artboard are empty.');
+    }
+    if (objectNames.length === 1) {
+      if (primaryTitle.length === 0) {
+        problems.push('Artboard "' + abName + '": Object Title is empty.');
+      }
+      if (objKeywords.length === 0) {
+        problems.push('Artboard "' + abName + '": Object Keywords are empty.');
+      }
+    } else if (objectNames.length > 1) {
+      if (!setFound) {
+        // "Matching Set not found" / "Multiple matching Sets found" already
+        // pushed above when resolving the Set; skip duplicate here.
+      } else {
+        if (primaryTitle.length === 0) {
+          problems.push('Artboard "' + abName + '": Set Title is empty.');
+        }
+        if (primaryKeywords.length === 0) {
+          problems.push('Artboard "' + abName + '": Set Keywords are empty.');
+        }
+      }
+    }
+
+    // ---- Title assembly ----
+    var title = "";
+    if (abTitleTpl.indexOf("*") >= 0) {
+      // Template has "*": replace it with the primary title.
+      title = abTitleTpl.replace(/\*/g, primaryTitle);
+    } else {
+      // No "*": prepend the primary title to the artboard title.
+      if (primaryTitle.length > 0) {
+        title = primaryTitle + " " + abTitleTpl;
+      } else {
+        title = abTitleTpl;
+      }
+    }
+    if (title.length === 0) title = objectNames.join(", ");
+
+    // Keywords: primary (object/Set) first, then artboard. Drop empties,
+    // dedupe preserving first-seen order, join with ", ".
     var seen = {};
-    var keywords = [];
-    for (var k = 0; k < tmplKw.length; k++) {
-      if (!seen[tmplKw[k]]) {
-        seen[tmplKw[k]] = true;
-        keywords.push(tmplKw[k]);
-      }
-    }
-    for (var g = 0; g < generatedKw.length; g++) {
-      if (!seen[generatedKw[g]]) {
-        seen[generatedKw[g]] = true;
-        keywords.push(generatedKw[g]);
+    var kw = [];
+    var allKw = primaryKeywords.concat(abKeywords);
+    for (var k = 0; k < allKw.length; k++) {
+      var t = String(allKw[k]).replace(/^\s+|\s+$/g, "");
+      if (t.length === 0) continue;
+      if (!seen[t]) {
+        seen[t] = true;
+        kw.push(t);
       }
     }
 
-    entries.push(
-      '  <g class="artboard" data-name="' +
-        vfEscapeXml(abName) +
-        '">\n' +
-        "    <title>" +
-        vfEscapeXml(title) +
-        "</title>\n" +
-        '    <text class="keywords">' +
-        vfEscapeXml(keywords.join(", ")) +
-        "</text>\n" +
-        "  </g>",
+    var filename = sanitizeFilename(prefix + "_" + abName) + ".eps";
+    rows.push(
+      csvEscapeCell(filename) +
+        "," +
+        csvEscapeCell(title) +
+        "," +
+        csvEscapeCell(kw.join(", ")) +
+        "," +
+        csvEscapeCell("") +
+        "," +
+        csvEscapeCell(""),
     );
   }
 
-  if (entries.length === 0) return;
+  if (rows.length <= 1) return; // only header -> nothing to write
 
-  var svg =
-    '<svg xmlns="http://www.w3.org/2000/svg" xmlns:x="adobe:stock:meta">\n' +
-    entries.join("\n") +
-    "\n</svg>\n";
+  var csv = rows.join("\r\n") + "\r\n";
+  // Save into the SAME folder the user chose for the SVG/EPS/JPG export
+  // (exportFolder). No extra folder picker — the path is reused as-is.
+  var csvFile = new File(exportFolder.fsName + "/adobe_stock.csv");
+  csvFile.open("w");
+  csvFile.write(csv);
+  csvFile.close();
 
-  var svgFile = new File(exportFolder.fsName + "/" + sanitizeFilename(prefix) + "_metadata.svg");
-  svgFile.open("w");
-  svgFile.write(svg);
-  svgFile.close();
+  // Report all validation problems at once (export already finished).
+  if (problems.length > 0) {
+    for (var p = 0; p < problems.length; p++) {
+      vfError(problems[p]);
+    }
+  }
 }
 
 // Escape a string for inclusion inside XML/SVG text content. Built from char

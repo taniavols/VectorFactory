@@ -1,0 +1,102 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Vector Factory Metadata</title>
+
+    <link rel="stylesheet" href="css/app.css" />
+    <script src="lib/CSInterface-4.0.0.js"></script>
+    <script src="js/metadata.js"></script>
+  </head>
+
+  <body>
+    <div id="app">
+      <!-- Metadata panel: per-artboard, per-artwork and per-set metadata.
+           Previously the second tab of the Tools panel; now a standalone
+           CEP panel that runs alongside Tools. Logic is unchanged. -->
+      <div id="tab-metadata">
+        <div id="emptyHint" class="empty-hint">выдели что-то</div>
+        <section class="panel-section" id="metaArtboardSection">
+          <div class="section-title">Artboard Metadata</div>
+          <div id="metaArtboardName" class="meta-ab-name">No artboard</div>
+          <label class="meta-label" for="metaTitle">Title Template</label>
+          <textarea
+            id="metaTitle"
+            class="meta-field"
+            rows="3"
+            placeholder="e.g. Icon set of * isolated on white background"
+          ></textarea>
+          <label class="meta-label" for="metaKeywords">Keywords Template</label>
+          <textarea
+            id="metaKeywords"
+            class="meta-field"
+            rows="3"
+            placeholder="e.g. icon, isolated, vector"
+          ></textarea>
+          <div id="metaStatus" class="meta-status"></div>
+        </section>
+
+        <section class="panel-section" id="artDataSection">
+          <div class="section-title">ART data</div>
+          <div id="awVfid" class="vfid-label">No artwork selected</div>
+          <div id="awWarn" class="meta-warn hidden"></div>
+          <label class="meta-label" for="awName">Object Name</label>
+          <textarea
+            id="awName"
+            class="meta-field"
+            rows="3"
+            placeholder="e.g. Red apple"
+          ></textarea>
+          <label class="meta-label" for="awKeywords">Keywords</label>
+          <textarea
+            id="awKeywords"
+            class="meta-field"
+            rows="3"
+            placeholder="e.g. apple, fruit, red"
+          ></textarea>
+          <button id="findKeywords" class="export" disabled title="Coming soon">
+            Find Keywords
+          </button>
+          <div id="awStatus" class="meta-status"></div>
+        </section>
+
+        <section class="panel-section" id="setSection">
+          <div class="section-title">Set</div>
+          <div id="setInfo" class="vfid-label">
+            Select 2+ elements, then Set
+          </div>
+          <button id="setObject" class="export btn-accent">Set</button>
+          <div class="btn-row">
+            <button id="deleteObject" class="export btn-danger hidden">
+              Delete
+            </button>
+            <button id="deleteAllSets" class="export btn-danger">
+              Delete All
+            </button>
+          </div>
+          <div id="setFields" class="hidden">
+            <label class="meta-label" for="setMembers">Members</label>
+            <div id="setMembers" class="meta-members"></div>
+            <label class="meta-label" for="setTitle">Title</label>
+            <textarea
+              id="setTitle"
+              class="meta-field"
+              rows="2"
+              placeholder="e.g. Red Apple Icon"
+            ></textarea>
+            <label class="meta-label" for="setKeywords">Keywords</label>
+            <textarea
+              id="setKeywords"
+              class="meta-field"
+              rows="3"
+              placeholder="e.g. apple icon, botanical"
+            ></textarea>
+            <div id="setStatus" class="meta-status"></div>
+          </div>
+        </section>
+      </div>
+
+      <div id="status">Ready</div>
+    </div>
+  </body>
+</html>

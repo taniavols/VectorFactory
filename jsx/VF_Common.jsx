@@ -75,9 +75,68 @@ function vfResult() {
   );
 }
 
+// ---- Generate audit logging (temporary, for diagnosing source corruption) ----
+// Writes a line to gen_debug.log next to the extension. Traces the clipping
+// mask creation path so we can confirm whether `copy` stays a GroupItem after
+// compoundPath and is then passed to makeMask (the suspected corruption cause).
+var _genLogPath = null;
+function genLog(msg) {
+  try {
+    if (_genLogPath === null) {
+      _genLogPath = File($.fileName).parent + "/gen_debug.log";
+    }
+    var f = new File(_genLogPath);
+    // "e" = edit mode: opens the file WITHOUT truncating it. We then seek to
+    // the end (mode 2 = SEEK_END) so every call appends. Using open("a") alone
+    // was observed to TRUNCATE the file on this Illustrator build, leaving only
+    // the last line in the log — which is exactly the symptom reported.
+    if (f.open("e")) {
+      f.seek(0, 2);
+      f.writeln("[" + (new Date()).toLocaleTimeString() + "] " + msg);
+      f.close();
+    }
+  } catch (e) {}
+}
+
+// Snapshot of the current app.selection: count + typename of each item.
+function _selState(label) {
+  var s = null;
+  try { s = app.selection; } catch (e) {}
+  var info = label + ": selectionCount=";
+  if (!s) { info += "0"; return info; }
+  info += s.length;
+  for (var i = 0; i < s.length; i++) {
+    try { info += " [" + i + "]=" + s[i].typename; } catch (e) { info += " [" + i + "]=?"; }
+  }
+  return info;
+}
+
+// Snapshot of the document/selection state for the log.
+function _docState(label) {
+  var info = label + ": ";
+  try { info += "activeDoc=" + (app.activeDocument ? '"' + app.activeDocument.name + '"' : "(none)"); } catch (e) { info += "activeDoc=?"; }
+  try { info += " documents.length=" + app.documents.length; } catch (e) {}
+  try { info += " selection.length=" + (app.selection ? app.selection.length : 0); } catch (e) {}
+  return info;
+}
+
+// Full error detail (number/message/file/line + stack) for logging.
+function _errState(e) {
+  if (!e) return "(null error)";
+  var s = "err=";
+  try { s += "number=" + e.number + " "; } catch (x) {}
+  try { s += "message=" + e.message + " "; } catch (x) {}
+  try { if (e.fileName) s += "fileName=" + e.fileName + " "; } catch (x) {}
+  try { if (e.line) s += "line=" + e.line + " "; } catch (x) {}
+  try { s += "toString=" + e.toString(); } catch (x) {}
+  return s;
+}
+
 function generate(mode) {
   // Default to "all" when called without a mode (e.g. legacy VF_Generate.jsx).
   gGenMode = mode || "all";
+
+  genLog("generate: START mode=" + gGenMode + " $.fileName=" + ($.fileName || "(unknown)") + " " + _docState(""));
 
   VF_ERRORS = [];
   VF_SUCCESS = "";
@@ -112,14 +171,17 @@ function generate(mode) {
   // Note: a text MASTER (the first item) replaces text in all PLACEHOLDERS
   // text frames — original single-text-master behavior is preserved exactly.
   if (masterLayer.pageItems[0].typename === "TextFrame") {
+    genLog("generate: TEXT MASTER branch (first MASTER item is TextFrame) — replacePlaceholderText path");
     try {
       replacePlaceholderText(placeholdersLayer, masterLayer.pageItems[0].contents);
       vfSuccess("Generated (text)");
     } catch (e) {
       vfError("Error: " + e.message);
+      genLog("generate: text branch CAUGHT " + _errState(e));
     }
     return vfResult();
   }
+  genLog("generate: GRAPHIC MASTER branch (fillPlaceholderGroup path)");
 
   try {
     for (var i = 0; i < placeholdersLayer.groupItems.length; i++) {
@@ -129,12 +191,15 @@ function generate(mode) {
     vfSuccess("Generated (" + gGenMode + ")");
   } catch (e) {
     vfError("Error: " + e.message);
+    genLog("generate: CAUGHT " + _errState(e));
   }
 
+  genLog(_docState("generate: END") + " userInteractionLevel=" + app.userInteractionLevel);
   return vfResult();
 }
 
 function fillPlaceholderGroup(group, masterByNumber) {
+  genLog("ENTER fillPlaceholderGroup $.fileName=" + ($.fileName || "(unknown)") + " group.name=" + (group ? group.name : "(null)"));
   var clippingTemplate = findClippingTemplate(group);
 
   if (clippingTemplate) {
@@ -146,6 +211,7 @@ function fillPlaceholderGroup(group, masterByNumber) {
 }
 
 function fillClippingTemplate(group, template, masterByNumber) {
+  genLog("ENTER fillClippingTemplate $.fileName=" + ($.fileName || "(unknown)"));
   removeGeneratedArt(group);
 
   var target = findTarget(template);
@@ -177,15 +243,28 @@ function fillClippingTemplate(group, template, masterByNumber) {
 // Если источник — группа, создаём из её копии Compound Path
 // только для использования как clipping mask.
 if (copy.typename === "GroupItem") {
+    genLog("fillClippingTemplate: copy BEFORE compoundPath typename=" + copy.typename + " name=" + copy.name);
+    genLog(_docState("fillClippingTemplate: before group/compoundPath") + " copy.typename=" + copy.typename);
     app.selection = null;
     copy.selected = true;
+    genLog(_selState("fillClippingTemplate: before group/compoundPath"));
 
+    var _compoundErr = null;
     try {
+        genLog(_docState("fillClippingTemplate: BEFORE executeMenuCommand(group)") + " copy.typename=" + copy.typename);
         app.executeMenuCommand("group");
+        genLog(_docState("fillClippingTemplate: AFTER executeMenuCommand(group)") + " copy.typename=" + copy.typename + " selection.length=" + (app.selection ? app.selection.length : 0));
+        genLog(_docState("fillClippingTemplate: BEFORE executeMenuCommand(compoundPath)") + " copy.typename=" + copy.typename);
         app.executeMenuCommand("compoundPath");
+        genLog(_docState("fillClippingTemplate: AFTER executeMenuCommand(compoundPath)") + " copy.typename=" + copy.typename + " selection.length=" + (app.selection ? app.selection.length : 0));
         copy = app.selection[0];
         copy.name = "ART";
-    } catch (e) {}
+    } catch (e) {
+        _compoundErr = _errState(e);
+    }
+    genLog("fillClippingTemplate: compoundPath error=" + (_compoundErr ? _compoundErr : "(none)"));
+    genLog("fillClippingTemplate: copy AFTER compoundPath typename=" + (copy ? copy.typename : "(null)") + " name=" + (copy ? copy.name : "(null)"));
+    genLog(_selState("fillClippingTemplate: after compoundPath"));
 }
 
   fitToTarget(copy, target);
@@ -228,19 +307,30 @@ function makeClippingMask(artGroup, mask) {
   // Упрощаем геометрию маски, чтобы избежать предупреждения о сложности.
   simplifyMask(mask);
 
+  genLog("makeClippingMask: ENTER $.fileName=" + ($.fileName || "(unknown)") + " mask.typename=" + mask.typename + " artGroup.name=" + artGroup.name + " artGroup.typename=" + artGroup.typename);
+
   // Подавляем диалог подтверждения "объект очень сложен…" на время команды.
   var prevLevel = app.userInteractionLevel;
   app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS;
 
+  var _makeMaskOk = false;
   try {
     mask.selected = true;
     for (var i = 0; i < artGroup.pageItems.length; i++) {
       if (artGroup.pageItems[i] !== mask) artGroup.pageItems[i].selected = true;
     }
+    genLog(_docState("makeClippingMask: before makeMask") + " mask.typename=" + mask.typename + " artGroup.typename=" + artGroup.typename);
+    genLog(_selState("makeClippingMask: before makeMask"));
+    genLog(_docState("makeClippingMask: BEFORE executeMenuCommand(makeMask)") + " mask.typename=" + mask.typename + " artGroup.typename=" + artGroup.typename);
     app.executeMenuCommand("makeMask");
+    genLog(_docState("makeClippingMask: AFTER executeMenuCommand(makeMask)") + " mask.typename=" + mask.typename + " artGroup.typename=" + artGroup.typename);
+    _makeMaskOk = true;
     app.selection = null;
+    genLog("makeClippingMask: makeMask SUCCEEDED");
+    genLog("makeClippingMask: artGroup AFTER typename=" + artGroup.typename + " artGroup.clipped=" + artGroup.clipped);
     return;
   } catch (e) {
+    genLog("makeClippingMask: makeMask FAILED " + _errState(e));
     app.selection = null;
   } finally {
     app.userInteractionLevel = prevLevel;
@@ -516,6 +606,7 @@ function isTarget(item) {
 }
 
 function replacePlaceholderText(container, text) {
+  genLog("replacePlaceholderText: ENTER textFrames=" + container.textFrames.length + " " + _docState(""));
   for (var i = 0; i < container.textFrames.length; i++) {
     var tf = container.textFrames[i];
 
@@ -524,7 +615,9 @@ function replacePlaceholderText(container, text) {
     var oldWidth = tf.width;
     var oldHorizontalScale = tf.textRange.characterAttributes.horizontalScale;
 
+    genLog("replacePlaceholderText: [" + i + "] BEFORE contents typename=" + tf.typename + " oldWidth=" + oldWidth + " oldHScale=" + oldHorizontalScale);
     tf.contents = text;
+    genLog("replacePlaceholderText: [" + i + "] AFTER contents newWidth=" + tf.width);
 
     // Measure the new (unscaled) width and compute a horizontal-scale factor
     // that brings it back to the original template width. Only the horizontal
@@ -534,12 +627,12 @@ function replacePlaceholderText(container, text) {
       var scale = oldWidth / newWidth;
       // Don't squeeze below 60% — very long words would become unreadable
       // "noodles"; at that point the text clearly needs a manual fix.
-      tf.textRange.characterAttributes.horizontalScale = Math.max(
-        60,
-        oldHorizontalScale * scale
-      );
+      var newHScale = Math.max(60, oldHorizontalScale * scale);
+      tf.textRange.characterAttributes.horizontalScale = newHScale;
+      genLog("replacePlaceholderText: [" + i + "] set horizontalScale=" + newHScale);
     }
   }
+  genLog("replacePlaceholderText: END");
 }
 
 function getLayer(doc, name) {
@@ -1084,10 +1177,55 @@ function setElementMeta(item, objectName, keywords) {
 }
 
 // --- SET METADATA (hidden VF_METADATA layer) ---
+// Ensure VF_METADATA is NEVER the document's activeLayer. If it is (or becomes)
+// active, switch to a safe layer: a preferred visible+unlocked non-metadata
+// layer (ARTWORK / MASTER / PLACEHOLDERS), else the first visible+unlocked
+// non-metadata layer, else the first non-metadata layer. Called unconditionally
+// at every exit point that may have left VF_METADATA active.
+function ensureNotMetadataActiveLayer(doc) {
+  try {
+    if (!doc) return;
+    if (!doc.activeLayer || doc.activeLayer.name !== "VF_METADATA") return;
+    var safe = null;
+    var preferred = ["ARTWORK", "MASTER", "PLACEHOLDERS"];
+    for (var pi = 0; pi < preferred.length; pi++) {
+      var pl = null;
+      try { pl = doc.layers.getByName(preferred[pi]); } catch (e) {}
+      if (pl && pl.name !== "VF_METADATA" && !pl.locked && pl.visible) {
+        safe = pl;
+        break;
+      }
+    }
+    if (!safe) {
+      for (var i = 0; i < doc.layers.length; i++) {
+        var L = doc.layers[i];
+        if (L.name !== "VF_METADATA" && !L.locked && L.visible) {
+          safe = L;
+          break;
+        }
+      }
+    }
+    if (!safe) {
+      for (var j = 0; j < doc.layers.length; j++) {
+        if (doc.layers[j].name !== "VF_METADATA") {
+          safe = doc.layers[j];
+          break;
+        }
+      }
+    }
+    if (safe) doc.activeLayer = safe;
+  } catch (e) {}
+}
+
 // The permanent hidden layer that holds one SET_<setid> text frame per Set.
 // Renamed from MASTER_METADATA: it now stores general plugin data
 // (Sets and future technical records), not only MASTER metadata.
 function getMetadataLayer(doc) {
+  // Preserve the layer the user was working on so we never leave VF_METADATA
+  // active (otherwise any following artwork creation would land inside it).
+  var prevActive = null;
+  try { prevActive = doc.activeLayer; } catch (e) {}
+
   var layer = getLayer(doc, "VF_METADATA");
   if (!layer) {
     // Migrate an old MASTER_METADATA layer so existing Sets are kept.
@@ -1100,8 +1238,8 @@ function getMetadataLayer(doc) {
       layer.name = "VF_METADATA";
     }
   }
-  layer.visible = false;
-  layer.locked = false;
+  layer.visible = true;
+  layer.locked = true;
   // A sub-layer inside a locked parent layer is still not modifiable, so
   // unlock every ancestor layer as well — otherwise textFrames.add() throws
   // "Cannot modify a layer that is locked" even though this layer is unlocked.
@@ -1111,6 +1249,13 @@ function getMetadataLayer(doc) {
     p.locked = false;
     p = p.parent;
   }
+  // doc.layers.add() makes the new layer active; never leave VF_METADATA
+  // active. If the previous layer is invalid or was VF_METADATA itself,
+  // ensureNotMetadataActiveLayer switches to a safe non-metadata layer.
+  if (prevActive && prevActive !== layer) {
+    try { doc.activeLayer = prevActive; } catch (e) {}
+  }
+  ensureNotMetadataActiveLayer(doc);
   return layer;
 }
 
@@ -1127,14 +1272,31 @@ function getSetFrame(doc, setId, create) {
   // Illustrator only allows adding page items to the document's activeLayer.
   // If another layer (e.g. ARTWORK) is active, layer.textFrames.add() throws
   // Error 9024 ("Cannot modify a layer that is locked") even though this layer
-  // is unlocked — the message is misleading. Make VF_METADATA active first.
+  // is unlocked — the message is misleading. Make VF_METADATA active first,
+  // then ALWAYS restore the previous active layer (even if add() throws).
+  var prevActive = null;
+  try { prevActive = doc.activeLayer; } catch (e) {}
   doc.activeLayer = layer;
   // A hidden layer cannot receive new page items (Error 9024), so briefly
   // make it visible, add the frame, then restore the original visibility.
+  // The layer is normally LOCKED (so it cannot be selected by mouse); unlock
+  // only for the duration of the write, then restore locked=true.
   var wasVisible = layer.visible;
+  var wasLocked = layer.locked;
   layer.visible = true;
-  var tf = layer.textFrames.add();
-  layer.visible = wasVisible;
+  layer.locked = false;
+  var tf = null;
+  try {
+    tf = layer.textFrames.add();
+  } finally {
+    layer.visible = wasVisible;
+    layer.locked = wasLocked;
+    // Restore active layer in finally so VF_METADATA is never left active,
+    // even if textFrames.add() throws. ensureNotMetadataActiveLayer also
+    // covers the case where prevActive was VF_METADATA (or invalid).
+    ensureNotMetadataActiveLayer(doc);
+  }
+  if (!tf) return null;
   tf.name = "SET_" + setId;
   tf.contents = "";
   tf.note = "";
@@ -1194,6 +1356,7 @@ function setSetMeta(setId, title, keywords) {
   meta.keywords = normalizeStringArray(keywords);
   if (!meta.members) meta.members = [];
   tf.note = jsonStringify(meta);
+  ensureNotMetadataActiveLayer(app.activeDocument);
 }
 
 // Collect every Set record currently stored, as a map setId -> record.
@@ -1210,36 +1373,175 @@ function getAllSets() {
   return out;
 }
 
+// ===== Artboard metadata (stored in VF_METADATA, keyed by artboard NAME) =====
+// One hidden text frame per artboard, named "ARTBOARD_<name>", stores its
+// data as a single object in the note (same pattern as Set frames). The
+// artboard NAME is the identifier (no GUID). Renaming an artboard creates a
+// new record; the old one is simply left behind (not migrated).
+var ARTBOARD_METADATA_VERSION = 1;
+
+// One hidden text frame per artboard, named "ARTBOARD_<name>". Reuses the
+// same layer/visibility handling as getSetFrame.
+function getArtboardFrame(doc, name, create) {
+  var safeName = String(name).replace(/[\\\/:*?"<>|]/g, "_");
+  // Read operations must not create the metadata layer.
+  var layer = create ? getMetadataLayer(doc) : getLayer(doc, "VF_METADATA");
+  if (!layer) return null;
+  for (var i = 0; i < layer.textFrames.length; i++) {
+    if (layer.textFrames[i].name === "ARTBOARD_" + safeName) {
+      return layer.textFrames[i];
+    }
+  }
+  if (!create) return null;
+  // Same layer/visibility handling as getSetFrame: switch active layer, add
+  // the frame, then ALWAYS restore the previous active layer (even if add()
+  // throws) via finally.
+  var prevActive = null;
+  try { prevActive = doc.activeLayer; } catch (e) {}
+  doc.activeLayer = layer;
+  // The layer is normally LOCKED (so it cannot be selected by mouse); unlock
+  // only for the duration of the write, then restore locked=true.
+  var wasVisible = layer.visible;
+  var wasLocked = layer.locked;
+  layer.visible = true;
+  layer.locked = false;
+  var tf = null;
+  try {
+    tf = layer.textFrames.add();
+  } finally {
+    layer.visible = wasVisible;
+    layer.locked = wasLocked;
+    // Restore active layer in finally so VF_METADATA is never left active,
+    // even if textFrames.add() throws. ensureNotMetadataActiveLayer also
+    // covers the case where prevActive was VF_METADATA (or invalid).
+    ensureNotMetadataActiveLayer(doc);
+  }
+  if (!tf) return null;
+  tf.name = "ARTBOARD_" + safeName;
+  tf.contents = "";
+  tf.note = "";
+  return tf;
+}
+
+// Load/migrate an artboard metadata note into the current schema:
+// { version, name, title, keywords:[] }.
+function loadArtboardMetadata(note) {
+  note = note || "";
+  var obj = jsonParse(note);
+  if (obj) {
+    return {
+      version: ARTBOARD_METADATA_VERSION,
+      name: obj.name != null ? String(obj.name) : "",
+      title: obj.title != null ? String(obj.title) : "",
+      keywords: normalizeStringArray(obj.keywords)
+    };
+  }
+  return {
+    name: "",
+    title: "",
+    keywords: []
+  };
+}
+
+// Read an artboard record by name, or null if none.
+function getArtboardMeta(name) {
+  var doc = app.activeDocument;
+  var tf = getArtboardFrame(doc, name, false);
+  if (!tf) return null;
+  var meta = loadArtboardMetadata(tf.note || "");
+  meta.name = meta.name || name;
+  return meta;
+}
+
+// Save (or update) an artboard's Title and Keywords. Only title/keywords are
+// overwritten; the frame is keyed by name.
+function setArtboardMeta(name, title, keywords) {
+  var doc = app.activeDocument;
+  var tf = getArtboardFrame(doc, name, true);
+  if (!tf) return;
+  var meta = loadArtboardMetadata(tf.note || "");
+  meta.version = ARTBOARD_METADATA_VERSION;
+  meta.name = name;
+  meta.title = title || "";
+  meta.keywords = normalizeStringArray(keywords);
+  tf.note = jsonStringify(meta);
+  ensureNotMetadataActiveLayer(app.activeDocument);
+}
+
+// Recursively collect every PageItem inside `container` (any nesting depth)
+// whose bounds fall inside `abRect`. Returns an array of items. Used so that
+// generated artwork placed inside nested GroupItems is still found during
+// export (the generator often nests objects several levels deep).
+function collectArtboardItems(container, abRect, out) {
+  if (!container) return;
+  var items = container.pageItems;
+  if (items) {
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (isInArtboard(item.geometricBounds, abRect)) out.push(item);
+    }
+  }
+  var groups = container.groupItems;
+  if (groups) {
+    for (var g = 0; g < groups.length; g++) {
+      collectArtboardItems(groups[g], abRect, out);
+    }
+  }
+}
+
 // Scan the given source layers and return the metadata for every artwork whose
 // bounds fall inside `abRect`. Used during export to build per-artboard titles
 // and keywords. Returns { objectNames: [], keywords: [] } (deduplicated).
-// Reads ELEMENT metadata (now stored in each element's note).
+// Reads ELEMENT metadata (now stored in each element's note). The search is
+// recursive so nested groups are included.
 function collectArtboardMetadata(doc, abRect, layers) {
   var namesSeen = {};
   var kwSeen = {};
   var objectNames = [];
   var keywords = [];
 
+  var items = [];
   for (var li = 0; li < layers.length; li++) {
-    var layer = layers[li];
-    if (!layer) continue;
-    for (var i = 0; i < layer.pageItems.length; i++) {
-      var item = layer.pageItems[i];
-      if (!isInArtboard(item.geometricBounds, abRect)) continue;
-      var meta = getElementMeta(item);
-      if (meta.objectName && !namesSeen[meta.objectName]) {
-        namesSeen[meta.objectName] = true;
-        objectNames.push(meta.objectName);
-      }
-      for (var k = 0; k < meta.keywords.length; k++) {
-        if (!kwSeen[meta.keywords[k]]) {
-          kwSeen[meta.keywords[k]] = true;
-          keywords.push(meta.keywords[k]);
-        }
+    collectArtboardItems(layers[li], abRect, items);
+  }
+
+  for (var i = 0; i < items.length; i++) {
+    var meta = getElementMeta(items[i]);
+    if (meta.objectName && !namesSeen[meta.objectName]) {
+      namesSeen[meta.objectName] = true;
+      objectNames.push(meta.objectName);
+    }
+    for (var k = 0; k < meta.keywords.length; k++) {
+      if (!kwSeen[meta.keywords[k]]) {
+        kwSeen[meta.keywords[k]] = true;
+        keywords.push(meta.keywords[k]);
       }
     }
   }
   return { objectNames: objectNames, keywords: keywords };
+}
+
+// Recursively collect the VF_IDs of every PageItem inside `container` (any
+// nesting depth) whose bounds fall inside `abRect`. Returns an array of
+// unique VF_ID strings. Used by the Adobe Stock CSV export to decide whether
+// an artboard holds a single artwork or a Set, and to match the exact Set.
+function collectArtboardVfIds(container, abRect, out) {
+  if (!container) return;
+  var items = container.pageItems;
+  if (items) {
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      if (!isInArtboard(item.geometricBounds, abRect)) continue;
+      var vfid = getVfId(item);
+      if (vfid && !arrayContains(out, vfid)) out.push(vfid);
+    }
+  }
+  var groups = container.groupItems;
+  if (groups) {
+    for (var g = 0; g < groups.length; g++) {
+      collectArtboardVfIds(groups[g], abRect, out);
+    }
+  }
 }
 
 // True if the bounds are inside the artboard at all (used by export).
@@ -1289,4 +1591,64 @@ function findItemByVfId(vfid) {
     if (getVfId(doc.pageItems[i]) === vfid) return doc.pageItems[i];
   }
   return null;
+}
+
+// ES3-safe Array membership check (ExtendScript has no Array.prototype.indexOf).
+function arrayContains(arr, value) {
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i] === value) return true;
+  }
+  return false;
+}
+
+// Find the Set record that contains the given element VF_ID among its
+// members, or null if none. Used by the Adobe Stock CSV export to resolve a
+// multi-object artboard to its Set title/keywords.
+function findSetByMemberVfid(vfid) {
+  if (!vfid) return null;
+  var all = getAllSets();
+  for (var id in all) {
+    var set = all[id];
+    if (!set || !set.members) continue;
+    for (var i = 0; i < set.members.length; i++) {
+      if (set.members[i] === vfid) return set;
+    }
+  }
+  return null;
+}
+
+// Return ALL Set records whose `members` are a SUBSET of the given board
+// VF_IDs: every member id must be present on the artboard. The board may
+// contain ADDITIONAL objects (e.g. several generated cows plus the Set's
+// cow + moon) — that is the normal case for a generated composition, so we
+// no longer require an EXACT 1:1 match. A Set is a "recipe" the board is
+// built from; matching it as a subset is what the user expects.
+// Used by the Adobe Stock CSV export to resolve a multi-object artboard to
+// its Set title/keywords.
+function findSetsWithExactMembers(vfids) {
+  var result = [];
+  if (!vfids || vfids.length === 0) return result;
+  var all = getAllSets();
+  for (var id in all) {
+    var set = all[id];
+    if (!set || !set.members || set.members.length === 0) continue;
+    var allPresent = true;
+    for (var i = 0; i < set.members.length; i++) {
+      if (!arrayContains(vfids, set.members[i])) {
+        allPresent = false;
+        break;
+      }
+    }
+    if (allPresent) result.push(set);
+  }
+  return result;
+}
+
+// Escape a single CSV cell for the Adobe Stock format: wrap in double quotes
+// and double any embedded quotes. A leading/trailing/embedded comma, quote or
+// newline also triggers quoting (we always quote to be safe).
+function csvEscapeCell(s) {
+  s = s == null ? "" : String(s);
+  var out = '"' + s.replace(/"/g, '""') + '"';
+  return out;
 }

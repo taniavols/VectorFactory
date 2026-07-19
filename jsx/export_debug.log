@@ -1,0 +1,126 @@
+[01:07:48] === exportArtboards START ===
+[01:07:48] before-export: activeDoc="5_.ai" path=/d/01_Work/01_Shutterstock/2026/5_.ai modified=undefined srcDoc.name=5_.ai srcDoc.modified=undefined
+[01:07:48] before-documents.add: activeDoc="5_.ai" path=/d/01_Work/01_Shutterstock/2026/5_.ai modified=undefined (artboard 0: line_leaves_single)
+[01:07:49] after-documents.add: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined tempDoc.name=Безымянный-1 tempDoc.typename=Document
+[01:07:53] before-selectall/outline/contour: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined EXPECTED tempDoc=Безымянный-1
+[01:07:53] before-saveAs: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\99_line_leaves_single.eps target.typename=File
+[01:07:54] after-saveAs: activeDoc="99_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/99_line_leaves_single.eps modified=undefined tempDoc.fullName=/d/01_Work/01_Shutterstock/2026/test/99_line_leaves_single.eps
+[01:07:54] before-exportFile: activeDoc="99_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/99_line_leaves_single.eps modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\99_line_leaves_single.jpg
+[01:07:55] after-exportFile: activeDoc="99_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/99_line_leaves_single.eps modified=undefined
+[01:07:55] before-close: activeDoc="99_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/99_line_leaves_single.eps modified=undefined closing tempDoc=99_line_leaves_single.eps
+[01:07:56] after-close: activeDoc="5_.ai" path=/d/01_Work/01_Shutterstock/2026/5_.ai modified=undefined
+[01:07:56] before-documents.add: activeDoc="5_.ai" path=/d/01_Work/01_Shutterstock/2026/5_.ai modified=undefined (artboard 1: line_single)
+[01:07:56] after-documents.add: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined tempDoc.name=Безымянный-1 tempDoc.typename=Document
+[01:08:03] before-selectall/outline/contour: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined EXPECTED tempDoc=Безымянный-1
+[01:08:03] before-saveAs: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\99_line_single.eps target.typename=File
+[01:08:05] after-saveAs: activeDoc="99_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/99_line_single.eps modified=undefined tempDoc.fullName=/d/01_Work/01_Shutterstock/2026/test/99_line_single.eps
+[01:08:05] before-exportFile: activeDoc="99_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/99_line_single.eps modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\99_line_single.jpg
+[01:08:06] after-exportFile: activeDoc="99_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/99_line_single.eps modified=undefined
+[01:08:06] before-close: activeDoc="99_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/99_line_single.eps modified=undefined closing tempDoc=99_line_single.eps
+[01:08:06] after-close: activeDoc="5_.ai" path=/d/01_Work/01_Shutterstock/2026/5_.ai modified=undefined
+[01:08:06] before-srcDoc.activate: activeDoc="5_.ai" path=/d/01_Work/01_Shutterstock/2026/5_.ai modified=undefined srcDoc.name=5_.ai
+[01:08:06] after-srcDoc.activate: activeDoc="5_.ai" path=/d/01_Work/01_Shutterstock/2026/5_.ai modified=undefined srcDoc.name=5_.ai srcDoc.modified=undefined
+[01:08:06] after-export-all: activeDoc="5_.ai" path=/d/01_Work/01_Shutterstock/2026/5_.ai modified=undefined srcDoc.name=5_.ai srcDoc.modified=undefined srcDoc.fullName=/d/01_Work/01_Shutterstock/2026/5_.ai
+[01:08:06] === exportArtboards END ===
+[17:24:01] === exportArtboards START ===
+[17:24:01] before-export: activeDoc="еуыефывфыв_.ai" path=/d/01_Work/01_Shutterstock/2026/%D0%B5%D1%83%D1%8B%D0%B5%D1%84%D1%8B%D0%B2%D1%84%D1%8B%D0%B2_.ai modified=undefined srcDoc.name=еуыефывфыв_.ai srcDoc.modified=undefined
+[17:24:01] before-documents.add: activeDoc="еуыефывфыв_.ai" path=/d/01_Work/01_Shutterstock/2026/%D0%B5%D1%83%D1%8B%D0%B5%D1%84%D1%8B%D0%B2%D1%84%D1%8B%D0%B2_.ai modified=undefined (artboard 0: line_leaves_single)
+[17:24:02] after-documents.add: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined tempDoc.name=Безымянный-1 tempDoc.typename=Document
+[17:24:05] before-selectall/outline/contour: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined EXPECTED tempDoc=Безымянный-1
+[17:24:06] before-saveAs: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\line_leaves_single.eps target.typename=File
+[17:24:07] after-saveAs: activeDoc="line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/line_leaves_single.eps modified=undefined tempDoc.fullName=/d/01_Work/01_Shutterstock/2026/test/line_leaves_single.eps
+[17:24:07] before-exportFile: activeDoc="line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/line_leaves_single.eps modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\line_leaves_single.jpg
+[17:24:08] after-exportFile: activeDoc="line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/line_leaves_single.eps modified=undefined
+[17:24:08] before-close: activeDoc="line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/line_leaves_single.eps modified=undefined closing tempDoc=line_leaves_single.eps
+[17:24:08] after-close: activeDoc="еуыефывфыв_.ai" path=/d/01_Work/01_Shutterstock/2026/%D0%B5%D1%83%D1%8B%D0%B5%D1%84%D1%8B%D0%B2%D1%84%D1%8B%D0%B2_.ai modified=undefined
+[17:24:08] before-documents.add: activeDoc="еуыефывфыв_.ai" path=/d/01_Work/01_Shutterstock/2026/%D0%B5%D1%83%D1%8B%D0%B5%D1%84%D1%8B%D0%B2%D1%84%D1%8B%D0%B2_.ai modified=undefined (artboard 1: line_single)
+[17:24:09] after-documents.add: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined tempDoc.name=Безымянный-1 tempDoc.typename=Document
+[17:24:17] before-selectall/outline/contour: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined EXPECTED tempDoc=Безымянный-1
+[17:24:17] before-saveAs: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\line_single.eps target.typename=File
+[17:24:18] after-saveAs: activeDoc="line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/line_single.eps modified=undefined tempDoc.fullName=/d/01_Work/01_Shutterstock/2026/test/line_single.eps
+[17:24:18] before-exportFile: activeDoc="line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/line_single.eps modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\line_single.jpg
+[17:24:19] after-exportFile: activeDoc="line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/line_single.eps modified=undefined
+[17:24:19] before-close: activeDoc="line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/line_single.eps modified=undefined closing tempDoc=line_single.eps
+[17:24:20] after-close: activeDoc="еуыефывфыв_.ai" path=/d/01_Work/01_Shutterstock/2026/%D0%B5%D1%83%D1%8B%D0%B5%D1%84%D1%8B%D0%B2%D1%84%D1%8B%D0%B2_.ai modified=undefined
+[17:24:20] before-srcDoc.activate: activeDoc="еуыефывфыв_.ai" path=/d/01_Work/01_Shutterstock/2026/%D0%B5%D1%83%D1%8B%D0%B5%D1%84%D1%8B%D0%B2%D1%84%D1%8B%D0%B2_.ai modified=undefined srcDoc.name=еуыефывфыв_.ai
+[17:24:20] after-srcDoc.activate: activeDoc="еуыефывфыв_.ai" path=/d/01_Work/01_Shutterstock/2026/%D0%B5%D1%83%D1%8B%D0%B5%D1%84%D1%8B%D0%B2%D1%84%D1%8B%D0%B2_.ai modified=undefined srcDoc.name=еуыефывфыв_.ai srcDoc.modified=undefined
+[17:24:20] after-export-all: activeDoc="еуыефывфыв_.ai" path=/d/01_Work/01_Shutterstock/2026/%D0%B5%D1%83%D1%8B%D0%B5%D1%84%D1%8B%D0%B2%D1%84%D1%8B%D0%B2_.ai modified=undefined srcDoc.name=еуыефывфыв_.ai srcDoc.modified=undefined srcDoc.fullName=/d/01_Work/01_Shutterstock/2026/%D0%B5%D1%83%D1%8B%D0%B5%D1%84%D1%8B%D0%B2%D1%84%D1%8B%D0%B2_.ai
+[17:24:20] === exportArtboards END ===
+[18:12:24] === exportArtboards START ===
+[18:12:24] before-export: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai srcDoc.modified=undefined
+[18:12:24] before-documents.add: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined (artboard 0: line_leaves_single)
+[18:12:24] after-documents.add: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined tempDoc.name=Безымянный-1 tempDoc.typename=Document
+[18:12:30] before-selectall/outline/contour: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined EXPECTED tempDoc=Безымянный-1
+[18:12:30] before-saveAs: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\1_line_leaves_single.eps target.typename=File
+[18:12:31] after-saveAs: activeDoc="1_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/1_line_leaves_single.eps modified=undefined tempDoc.fullName=/d/01_Work/01_Shutterstock/2026/test/1_line_leaves_single.eps
+[18:12:31] before-exportFile: activeDoc="1_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/1_line_leaves_single.eps modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\1_line_leaves_single.jpg
+[18:12:33] after-exportFile: activeDoc="1_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/1_line_leaves_single.eps modified=undefined
+[18:12:33] before-close: activeDoc="1_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/1_line_leaves_single.eps modified=undefined closing tempDoc=1_line_leaves_single.eps
+[18:12:33] after-close: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined
+[18:12:33] before-documents.add: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined (artboard 1: line_single)
+[18:12:34] after-documents.add: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined tempDoc.name=Безымянный-1 tempDoc.typename=Document
+[18:12:36] before-selectall/outline/contour: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined EXPECTED tempDoc=Безымянный-1
+[18:12:37] before-saveAs: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\1_line_single.eps target.typename=File
+[18:12:37] after-saveAs: activeDoc="1_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/1_line_single.eps modified=undefined tempDoc.fullName=/d/01_Work/01_Shutterstock/2026/test/1_line_single.eps
+[18:12:38] before-exportFile: activeDoc="1_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/1_line_single.eps modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\1_line_single.jpg
+[18:12:39] after-exportFile: activeDoc="1_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/1_line_single.eps modified=undefined
+[18:12:39] before-close: activeDoc="1_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/1_line_single.eps modified=undefined closing tempDoc=1_line_single.eps
+[18:12:39] after-close: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined
+[18:12:39] before-srcDoc.activate: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai
+[18:12:39] after-srcDoc.activate: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai srcDoc.modified=undefined
+[18:12:39] after-export-all: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai srcDoc.modified=undefined srcDoc.fullName=/d/01_Work/01_Shutterstock/2026/test_.ai
+[18:12:39] === exportArtboards END ===
+[18:25:16] === exportArtboards START ===
+[18:25:16] before-export: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai srcDoc.modified=undefined
+[18:25:16] before-documents.add: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined (artboard 0: line_leaves_single)
+[18:25:17] after-documents.add: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined tempDoc.name=Безымянный-1 tempDoc.typename=Document
+[18:25:23] before-selectall/outline/contour: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined EXPECTED tempDoc=Безымянный-1
+[18:25:23] before-saveAs: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\undefined34_line_leaves_single.eps target.typename=File
+[18:25:24] after-saveAs: activeDoc="undefined34_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/undefined34_line_leaves_single.eps modified=undefined tempDoc.fullName=/d/01_Work/01_Shutterstock/2026/test/undefined34_line_leaves_single.eps
+[18:25:24] before-exportFile: activeDoc="undefined34_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/undefined34_line_leaves_single.eps modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\undefined34_line_leaves_single.jpg
+[18:25:25] after-exportFile: activeDoc="undefined34_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/undefined34_line_leaves_single.eps modified=undefined
+[18:25:25] before-close: activeDoc="undefined34_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/undefined34_line_leaves_single.eps modified=undefined closing tempDoc=undefined34_line_leaves_single.eps
+[18:25:26] after-close: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined
+[18:25:26] before-documents.add: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined (artboard 1: line_single)
+[18:25:27] after-documents.add: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined tempDoc.name=Безымянный-1 tempDoc.typename=Document
+[18:25:29] before-selectall/outline/contour: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined EXPECTED tempDoc=Безымянный-1
+[18:25:29] before-saveAs: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\undefined34_line_single.eps target.typename=File
+[18:25:30] after-saveAs: activeDoc="undefined34_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/undefined34_line_single.eps modified=undefined tempDoc.fullName=/d/01_Work/01_Shutterstock/2026/test/undefined34_line_single.eps
+[18:25:30] before-exportFile: activeDoc="undefined34_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/undefined34_line_single.eps modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\undefined34_line_single.jpg
+[18:25:31] after-exportFile: activeDoc="undefined34_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/undefined34_line_single.eps modified=undefined
+[18:25:31] before-close: activeDoc="undefined34_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/undefined34_line_single.eps modified=undefined closing tempDoc=undefined34_line_single.eps
+[18:25:32] after-close: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined
+[18:25:32] before-srcDoc.activate: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai
+[18:25:32] after-srcDoc.activate: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai srcDoc.modified=undefined
+[18:25:32] [CSV-MATCH] artboard "line_single" boardVfids=["94dc8b91","7e84498a","b0734746","98524488","45e15486","d6d8ee12","5ba1a592","f45648c3"]
+[18:25:32] [CSV-MATCH]   Set 756208cc members=["f45648c3","5ba1a592"] title="moonecow"
+[18:25:32] [CSV-MATCH]   Set 8d43c3a2 members=["70ded4f5","3b1645f5"] title="lefebears"
+[18:25:32] after-export-all: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai srcDoc.modified=undefined srcDoc.fullName=/d/01_Work/01_Shutterstock/2026/test_.ai
+[18:25:32] === exportArtboards END ===
+[18:34:11] === exportArtboards START ===
+[18:34:11] before-export: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai srcDoc.modified=undefined
+[18:34:11] before-documents.add: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined (artboard 0: line_leaves_single)
+[18:34:12] after-documents.add: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined tempDoc.name=Безымянный-1 tempDoc.typename=Document
+[18:34:17] before-selectall/outline/contour: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined EXPECTED tempDoc=Безымянный-1
+[18:34:18] before-saveAs: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\23_line_leaves_single.eps target.typename=File
+[18:34:19] after-saveAs: activeDoc="23_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/23_line_leaves_single.eps modified=undefined tempDoc.fullName=/d/01_Work/01_Shutterstock/2026/test/23_line_leaves_single.eps
+[18:34:19] before-exportFile: activeDoc="23_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/23_line_leaves_single.eps modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\23_line_leaves_single.jpg
+[18:34:20] after-exportFile: activeDoc="23_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/23_line_leaves_single.eps modified=undefined
+[18:34:20] before-close: activeDoc="23_line_leaves_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/23_line_leaves_single.eps modified=undefined closing tempDoc=23_line_leaves_single.eps
+[18:34:21] after-close: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined
+[18:34:21] before-documents.add: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined (artboard 1: line_single)
+[18:34:21] after-documents.add: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined tempDoc.name=Безымянный-1 tempDoc.typename=Document
+[18:34:24] before-selectall/outline/contour: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined EXPECTED tempDoc=Безымянный-1
+[18:34:24] before-saveAs: activeDoc="Безымянный-1" path=/c/Program%20Files/Adobe/Adobe%20Illustrator%202025/Support%20Files/Contents/Windows/%D0%91%D0%B5%D0%B7%D1%8B%D0%BC%D1%8F%D0%BD%D0%BD%D1%8B%D0%B9-1 modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\23_line_single.eps target.typename=File
+[18:34:25] after-saveAs: activeDoc="23_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/23_line_single.eps modified=undefined tempDoc.fullName=/d/01_Work/01_Shutterstock/2026/test/23_line_single.eps
+[18:34:25] before-exportFile: activeDoc="23_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/23_line_single.eps modified=undefined target=D:\01_Work\01_Shutterstock\2026\test\23_line_single.jpg
+[18:34:26] after-exportFile: activeDoc="23_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/23_line_single.eps modified=undefined
+[18:34:26] before-close: activeDoc="23_line_single.eps" path=/d/01_Work/01_Shutterstock/2026/test/23_line_single.eps modified=undefined closing tempDoc=23_line_single.eps
+[18:34:27] after-close: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined
+[18:34:27] before-srcDoc.activate: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai
+[18:34:27] after-srcDoc.activate: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai srcDoc.modified=undefined
+[18:34:27] [CSV-MATCH] artboard "line_single" boardVfids=["94dc8b91","7e84498a","b0734746","98524488","45e15486","d6d8ee12","5ba1a592","f45648c3"]
+[18:34:27] [CSV-MATCH]   Set 756208cc members=["f45648c3","5ba1a592"] title="moonecow"
+[18:34:27] [CSV-MATCH]   Set 8d43c3a2 members=["70ded4f5","3b1645f5"] title="lefebears"
+[18:34:27] after-export-all: activeDoc="test_.ai" path=/d/01_Work/01_Shutterstock/2026/test_.ai modified=undefined srcDoc.name=test_.ai srcDoc.modified=undefined srcDoc.fullName=/d/01_Work/01_Shutterstock/2026/test_.ai
+[18:34:27] === exportArtboards END ===

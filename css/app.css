@@ -174,18 +174,63 @@ hr {
 
 /* All gray export buttons share the default button look (like Clear). */
 .export {
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
-  height: 30px;
+  height: 36px;
   background: #4d4d4d;
   color: #fff;
+  font-size: 13px;
 }
 
 .export:hover {
   background: #5a5a5a;
 }
 
-/* Only the main Export button is yellow; the others stay neutral. */
+/* Inline SVG icon inside a button: sized to the text, inherits color. */
+.btn-ico {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: block;
+}
+
+/* Accent (primary action) button — blue, like the main Export button. */
+.btn-accent {
+  background: #1473e6;
+  font-weight: 600;
+}
+
+.btn-accent:hover {
+  background: #2584f5;
+}
+
+/* Danger (delete) buttons — deeper, more saturated red. */
+.btn-danger {
+  background: #c62828;
+  color: #fff;
+}
+
+.btn-danger:hover {
+  background: #d32f2f;
+}
+
+/* Row of buttons sitting side by side (e.g. the two delete buttons). */
+.btn-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 0;
+}
+
+.btn-row .export {
+  flex: 1;
+}
+
+/* Export button is yellow (primary action at the bottom of the Export
+   section). Only "Generate all" is blue (.primary); Blacks / Colors are
+   neutral grey like the other export actions. */
 #exportBtn {
   background: #f5c518;
   color: #1a1a1a;
@@ -206,26 +251,27 @@ hr {
 
 .path-row #exportPath {
   width: 100%;
-  min-height: 28px;
+  min-height: 32px;
   height: auto;
-  padding: 4px 6px;
+  padding: 5px 7px;
   box-sizing: border-box;
   border: 1px solid #555;
   border-radius: 4px;
   background: #2f2f2f;
-  color: #bbb;
+  color: #cfd3d6;
   font:
-    10px "Segoe UI",
+    12px "Segoe UI",
     sans-serif;
   line-height: 1.3;
   outline: none;
   overflow: hidden;
   word-break: break-all;
+  text-align: left;
 }
 
-/* Right-align only the chosen path text (not the placeholder hint). */
+/* Left-align the chosen path text (not the placeholder hint). */
 .path-row #exportPath:not(:placeholder-shown) {
-  text-align: right;
+  text-align: left;
 }
 
 #status {
@@ -428,9 +474,20 @@ hr {
 }
 
 /* Real tab behavior: only the active tab's content is shown; the others are
-   removed from layout entirely (not just visually disabled). */
+     removed from layout entirely (not just visually disabled). */
 .hidden {
   display: none !important;
+}
+
+/* Placeholder shown when nothing is selected in the Metadata panel. */
+.empty-hint {
+  padding: 16px 8px;
+  text-align: center;
+  color: #9aa0a6;
+  font-size: 12px;
+  background: #3a3a3a;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
 }
 
 /* Keep the panel height stable across tabs so switching doesn't jump. */
@@ -446,6 +503,28 @@ hr {
   color: #fff;
   background: #2f2f2f;
   border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin-bottom: 6px;
+  word-break: break-word;
+}
+
+/* Small grey VF_ID label shown at the top of a section (not a field box). */
+.vfid-label {
+  font-size: 10px;
+  color: #8a8f94;
+  margin-bottom: 6px;
+  word-break: break-all;
+}
+
+/* Warning banner shown in ART data when the selected item looks like the
+   background (a rectangle filling the artboard) rather than the artwork. */
+.meta-warn {
+  font-size: 10px;
+  line-height: 1.3;
+  color: #ffb74d;
+  background: #4a3a1a;
+  border: 1px solid #6b4f1f;
   border-radius: 4px;
   padding: 4px 6px;
   margin-bottom: 6px;
