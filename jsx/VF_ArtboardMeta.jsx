@@ -48,3 +48,56 @@ function getActiveArtboardName() {
 function getSelectedArtboardName() {
   return '{"name":"' + vfEscapeJson(getActiveArtboardName()) + '"}';
 }
+
+// Rename the active artboard (identified by its CURRENT name) to `newName`,
+// and migrate its metadata record so the Title/Keywords stay connected.
+// The metadata frame is named "ARTBOARD_<safeName>" (see VF_Common.jsx); we
+// simply rename that frame to the new safe name — the note (title/keywords)
+// is preserved untouched. Returns the standard {errors, success} result.
+function renameArtboardByName(oldName, newName) {
+  VF_ERRORS = [];
+  VF_SUCCESS = "";
+  if (app.documents.length === 0) {
+    vfError("No document.");
+    return vfResult();
+  }
+  if (!oldName || !newName || !newName.replace(/^\s+|\s+$/g, "")) {
+    vfError("Artboard name required.");
+    return vfResult();
+  }
+  newName = newName.replace(/^\s+|\s+$/g, "");
+  var doc = app.activeDocument;
+
+  // 1) Find and rename the actual Illustrator artboard by its current name.
+  var ab = null;
+  for (var i = 0; i < doc.artboards.length; i++) {
+    if (doc.artboards[i].name === oldName) {
+      ab = doc.artboards[i];
+      break;
+    }
+  }
+  if (!ab) {
+    vfError("Artboard not found: " + oldName);
+    return vfResult();
+  }
+  ab.name = newName;
+
+  // 2) Migrate the metadata frame: rename ARTBOARD_<oldSafe> to
+  //    ARTBOARD_<newSafe> so the stored Title/Keywords remain attached.
+  var oldSafe = String(oldName).replace(/[\\\/:*?"<>|]/g, "_");
+  var newSafe = String(newName).replace(/[\\\/:*?"<>|]/g, "_");
+  if (oldSafe !== newSafe) {
+    var layer = getLayer(doc, "VF_METADATA");
+    if (layer) {
+      for (var f = 0; f < layer.textFrames.length; f++) {
+        if (layer.textFrames[f].name === "ARTBOARD_" + oldSafe) {
+          layer.textFrames[f].name = "ARTBOARD_" + newSafe;
+          break;
+        }
+      }
+    }
+  }
+
+  vfSuccess("Artboard renamed.");
+  return vfResult();
+}

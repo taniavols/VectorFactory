@@ -15,10 +15,16 @@ body {
    content area scroll vertically inside it instead of forcing the whole
    panel to be oversized. */
 #app {
+  display: flex;
+  flex-direction: column;
   height: 100%;
   box-sizing: border-box;
   padding: 8px;
   overflow-y: auto;
+}
+
+#tab-tools {
+  flex: 0 0 auto;
 }
 
 /* Panel sections with a titled header for visual grouping */
@@ -28,6 +34,20 @@ body {
   border-radius: 6px;
   padding: 6px;
   margin-bottom: 6px;
+}
+
+/* Active context color stripe (left border). Applied by JS when the section
+   is the current selection context. */
+#metaArtboardSection.active-mode-artboard {
+  border-left: 3px solid #f5c518;
+}
+
+#artDataSection.active-mode-single {
+  border-left: 3px solid #1473e6;
+}
+
+#setSection.active-mode-multiple {
+  border-left: 3px solid #ec5fa6;
 }
 
 .section-title {
@@ -45,6 +65,46 @@ body {
 
 .panel-section > *:last-child {
   margin-bottom: 0;
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #ddd;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-label input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 1px solid #5a5a5a;
+  border-radius: 3px;
+  background: #2f2f2f;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.checkbox-label input[type="checkbox"]:checked {
+  background: #1473e6;
+  border-color: #1473e6;
+}
+
+.checkbox-label input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 0px;
+  width: 4px;
+  height: 9px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
 #previewBox {
@@ -126,16 +186,8 @@ button:active {
   background: #2584f5;
 }
 
-/* Three generate-mode buttons stacked vertically in the Generate section. */
-.gen-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 4px;
-}
-
-.gen-row .primary {
-  margin-bottom: 0;
+.gen-full {
+  margin-bottom: 6px;
 }
 
 .row {
@@ -217,7 +269,19 @@ hr {
   background: #d32f2f;
 }
 
-/* Row of buttons sitting side by side (e.g. the two delete buttons). */
+/* Small gray secondary buttons — used for secondary actions. */
+.btn-sm {
+  height: 26px;
+  background: #5a5a5a;
+  color: #ddd;
+  font-size: 11px;
+}
+
+.btn-sm:hover {
+  background: #666;
+}
+
+/* Row of buttons sitting side by side (e.g. the three delete buttons). */
 .btn-row {
   display: flex;
   gap: 6px;
@@ -225,6 +289,11 @@ hr {
 }
 
 .btn-row .export {
+  flex: 1;
+}
+
+/* Only two buttons: keep 50/50. */
+.btn-row.two .export {
   flex: 1;
 }
 
@@ -279,7 +348,8 @@ hr {
   text-align: center;
   font-size: 11px;
   color: #7fd67f;
-  max-height: 120px;
+  flex: 1;
+  min-height: 30px;
   overflow-y: auto;
   word-break: break-word;
 }
@@ -361,11 +431,17 @@ hr {
 
 .modal-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 
 .modal-actions button {
   flex: 1;
+}
+
+.modal-actions-row {
+  display: flex;
+  gap: 6px;
 }
 
 .modal-row {
@@ -381,11 +457,11 @@ hr {
 }
 
 .modal-actions .primary {
-  background: #1473e6;
+  background: #4d4d4d;
 }
 
 .modal-actions .primary:hover {
-  background: #2584f5;
+  background: #5a5a5a;
 }
 
 .modal-actions .secondary {
@@ -551,7 +627,7 @@ hr {
   background: #2f2f2f;
   color: #ddd;
   font:
-    11px "Segoe UI",
+    13px "Segoe UI",
     sans-serif;
   line-height: 1.35;
   resize: vertical;
@@ -591,4 +667,290 @@ hr {
   color: #cfd3d6;
   padding: 1px 0;
   word-break: break-all;
+}
+
+/* Diagnostics output area inside the Metadata panel */
+.diag-section {
+  margin-bottom: 6px;
+}
+.diag-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.diag-title {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9aa0a6;
+}
+.diag-action {
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+  background: #4a4a4a;
+  border: 1px solid #5a5a5a;
+  color: #ddd;
+  border-radius: 3px;
+  line-height: 1;
+}
+.diag-action:hover {
+  background: #555;
+}
+.diag-copy {
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+  background: #4a4a4a;
+  border: 1px solid #5a5a5a;
+  color: #ddd;
+  border-radius: 3px;
+}
+.diag-copy:hover {
+  background: #555;
+}
+.diag-close {
+  font-size: 12px;
+  padding: 2px 7px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid #5a5a5a;
+  color: #aaa;
+  border-radius: 3px;
+  line-height: 1;
+}
+.diag-close:hover {
+  background: #4a4a4a;
+  color: #fff;
+}
+.diag-output {
+  background: #2a2a2a;
+  border: 1px solid #4a4a4a;
+  border-radius: 4px;
+  padding: 6px;
+  font-family: "Cascadia Code", "Consolas", "Monaco", monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #ccc;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 240px;
+  display: none;
+}
+.diag-output.visible {
+  display: block;
+}
+.diag-output.has-content {
+  display: block;
+}
+
+/* OpenAI key section (inside ai-settings panel). */
+.ai-settings {
+  /* Uses default .panel-section styling */
+}
+
+.ai-key-view {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.ai-key-view .ai-key-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #aaa;
+  flex: 0 0 auto;
+}
+
+.ai-key-view .ok {
+  font-size: 10px;
+  color: #7fd67f;
+  flex: 0 0 auto;
+}
+
+.ai-key-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.ai-small {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 11px;
+  border-radius: 3px;
+  background: #4a4a4a;
+  color: #ddd;
+  border: 1px solid #555;
+  cursor: pointer;
+}
+
+.ai-small:hover {
+  background: #555;
+}
+
+.ai-key-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.ai-key-row .meta-input {
+  flex: 1;
+}
+
+.ai-save-row {
+  margin-bottom: 6px;
+}
+
+.ai-model-label {
+  display: block;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9aa0a6;
+  margin-bottom: 2px;
+}
+
+select.meta-input {
+  background: #4a4a4a;
+  color: #ddd;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  height: 30px;
+  width: 100%;
+  box-sizing: border-box;
+  appearance: auto;
+}
+
+select.meta-input:focus {
+  border-color: #1473e6;
+  outline: none;
+}
+
+.ai-meta-compact {
+  background: #3a3a3a;
+  border: 1px solid #4a4a4a;
+  border-radius: 6px;
+  padding: 6px;
+  margin-bottom: 6px;
+}
+
+.ai-meta-compact .section-title {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-meta-body {
+  margin-top: 4px;
+}
+
+.ai-meta-compact.collapsed .ai-meta-body {
+  display: none;
+}
+
+.ai-meta-body .export {
+  margin-bottom: 4px;
+}
+
+.ai-meta-body .meta-status {
+  margin-top: 4px;
+}
+
+.collapsible {
+  cursor: pointer;
+  user-select: none;
+}
+
+.collapse-caret {
+  display: inline-block;
+  transition: transform 0.2s;
+  font-size: 10px;
+  color: #9aa0a6;
+}
+
+.collapse-caret.open {
+  transform: rotate(180deg);
+}
+
+/* AI Request modal */
+.ai-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+}
+
+.ai-modal-overlay.hidden {
+  display: none;
+}
+
+.ai-modal {
+  width: 95%;
+  height: 95%;
+  max-width: 95%;
+  max-height: 95%;
+  background: #3a3a3a;
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 10px;
+  box-sizing: border-box;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-modal-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.ai-modal-context {
+  font-size: 11px;
+  color: #9aa0a6;
+}
+
+.ai-modal-textarea {
+  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #2f2f2f;
+  color: #ddd;
+  font:
+    11px "Segoe UI",
+    sans-serif;
+  line-height: 1.35;
+  resize: none;
+  outline: none;
+}
+
+.ai-modal-textarea:focus {
+  border-color: #1473e6;
+}
+
+.ai-modal-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ai-modal-actions button {
+  flex: 1;
+  height: 32px;
+  font-size: 12px;
 }

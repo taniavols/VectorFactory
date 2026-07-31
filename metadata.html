@@ -16,9 +16,87 @@
            CEP panel that runs alongside Tools. Logic is unchanged. -->
       <div id="tab-metadata">
         <div id="emptyHint" class="empty-hint">выдели что-то</div>
+
+        <!-- OpenAI settings block: lives at the very TOP of the panel as its
+             own separate block. Stores ONLY local settings (API key, model)
+             in a JSON file next to the extension — never inside Illustrator
+             documents or AI files. -->
+        <section class="panel-section ai-settings" id="aiSettingsSection">
+          <div class="section-title">OpenAI</div>
+
+          <!-- View mode (key present): one compact row:
+               "API Key: ✓ key exists   [Edit] [Test]" -->
+          <div id="aiKeyView" class="ai-key-view hidden">
+            <span class="ai-key-label">API Key:</span>
+            <span class="ok">✓ key exists</span>
+            <div id="aiKeyActions" class="ai-key-actions">
+              <button id="aiEditKey" class="ai-small" type="button">
+                Edit
+              </button>
+              <button id="aiTest" class="ai-small" type="button">Test</button>
+            </div>
+          </div>
+
+          <!-- Edit mode: input + Show, then Save. -->
+          <div id="aiKeyEdit">
+            <div class="row ai-key-row">
+              <input
+                type="password"
+                id="aiApiKey"
+                class="meta-input"
+                placeholder="sk-..."
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button id="aiShowKey" class="ai-small" type="button">
+                Show
+              </button>
+            </div>
+            <div class="row ai-save-row">
+              <button id="aiSave" class="export" type="button">Save</button>
+            </div>
+          </div>
+
+          <label class="meta-label ai-model-label" for="aiModel">Model</label>
+          <select id="aiModel" class="meta-input">
+            <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+            <option value="gpt-4.1">gpt-4.1</option>
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="gpt-4o">gpt-4o</option>
+          </select>
+        </section>
+
+        <!-- Metadata actions: always-visible block at the top of the panel.
+             Delete Active removes the metadata for the current selection
+             (element / set / artboard). Select to Delete opens the record
+             picker. Diagnose shows detailed diagnostics. -->
+        <section class="panel-section" id="docInfoSection">
+          <div class="section-title">Metadata</div>
+          <div class="diag-section">
+            <div class="diag-row">
+              <div class="diag-title">Diagnostics</div>
+              <button id="diagClose" class="diag-action hidden" type="button">
+                &times;
+              </button>
+            </div>
+            <div id="diagOutput" class="diag-output"></div>
+          </div>
+          <div class="btn-row">
+            <button id="deleteActiveMeta" class="export">Delete Active</button>
+            <button id="deleteSelectedMeta" class="export">Select to Delete</button>
+            <button id="deleteAllMeta" class="export">Delete All</button>
+            <button id="diagnoseMeta" class="export">Diagnose</button>
+          </div>
+        </section>
+
         <section class="panel-section" id="metaArtboardSection">
           <div class="section-title">Artboard Metadata</div>
-          <div id="metaArtboardName" class="meta-ab-name">No artboard</div>
+          <input
+            id="metaArtboardName"
+            class="meta-ab-name meta-ab-name-input"
+            type="text"
+            value="No artboard"
+          />
           <label class="meta-label" for="metaTitle">Title Template</label>
           <textarea
             id="metaTitle"
@@ -26,13 +104,23 @@
             rows="3"
             placeholder="e.g. Icon set of * isolated on white background"
           ></textarea>
+          <div class="field-counter" id="metaTitleCount"></div>
+          <label class="meta-label" for="metaShortTitle">Short Title Template</label>
+          <textarea
+            id="metaShortTitle"
+            class="meta-field"
+            rows="3"
+            placeholder="e.g. * icon set"
+          ></textarea>
+          <div class="field-counter" id="metaShortTitleCount"></div>
           <label class="meta-label" for="metaKeywords">Keywords Template</label>
           <textarea
             id="metaKeywords"
             class="meta-field"
-            rows="3"
+            rows="5"
             placeholder="e.g. icon, isolated, vector"
           ></textarea>
+          <div class="field-counter" id="metaKeywordsCount"></div>
           <div id="metaStatus" class="meta-status"></div>
         </section>
 
@@ -47,16 +135,15 @@
             rows="3"
             placeholder="e.g. Red apple"
           ></textarea>
+          <div class="field-counter" id="awNameCount"></div>
           <label class="meta-label" for="awKeywords">Keywords</label>
           <textarea
             id="awKeywords"
             class="meta-field"
-            rows="3"
+            rows="5"
             placeholder="e.g. apple, fruit, red"
           ></textarea>
-          <button id="findKeywords" class="export" disabled title="Coming soon">
-            Find Keywords
-          </button>
+          <div class="field-counter" id="awKeywordsCount"></div>
           <div id="awStatus" class="meta-status"></div>
         </section>
 
@@ -66,14 +153,7 @@
             Select 2+ elements, then Set
           </div>
           <button id="setObject" class="export btn-accent">Set</button>
-          <div class="btn-row">
-            <button id="deleteObject" class="export btn-danger hidden">
-              Delete
-            </button>
-            <button id="deleteAllSets" class="export btn-danger">
-              Delete All
-            </button>
-          </div>
+          <button id="unmakeSet" class="export hidden">Unmake Set</button>
           <div id="setFields" class="hidden">
             <label class="meta-label" for="setMembers">Members</label>
             <div id="setMembers" class="meta-members"></div>
@@ -84,16 +164,104 @@
               rows="2"
               placeholder="e.g. Red Apple Icon"
             ></textarea>
+            <div class="field-counter" id="setTitleCount"></div>
             <label class="meta-label" for="setKeywords">Keywords</label>
             <textarea
               id="setKeywords"
               class="meta-field"
-              rows="3"
+              rows="5"
               placeholder="e.g. apple icon, botanical"
             ></textarea>
+            <div class="field-counter" id="setKeywordsCount"></div>
             <div id="setStatus" class="meta-status"></div>
           </div>
         </section>
+
+        <!-- AI Metadata settings. Collapsible. Stores ONLY local settings
+             (API key, model, future knobs) in a JSON file next to the
+             extension — never inside Illustrator documents or AI files.
+             The schema is a single extensible object so new fields
+             (temperature, language, per-type prompts, Generate/Improve
+             toggle) can be added later without reworking storage. -->
+        <section class="panel-section ai-meta-compact" id="aiMetaSection">
+          <div class="section-title collapsible" id="aiMetaHeader">
+            <span>AI Metadata</span>
+            <span class="collapse-caret">&#9662;</span>
+          </div>
+          <div class="ai-meta-body" id="aiMetaBody">
+            <!-- Optional recognition hint: extra instruction the AI should
+                 consider when analyzing the image. Not required. -->
+            <label class="meta-label" for="aiHint">Recognition hint</label>
+            <textarea
+              id="aiHint"
+              class="meta-field"
+              rows="2"
+              placeholder="Optional: tell the AI what to look for / focus on"
+            ></textarea>
+
+            <!-- Edit the prompt that will be sent to OpenAI for the current
+                 selection context (element / set / artboard). Opens an
+                 in-panel modal overlay. -->
+            <button id="aiEditRequest" class="export" type="button">
+              Edit Request
+            </button>
+
+            <!-- Single main action button, full width blue. Routes by the
+                 current selection (element / set / artboard). -->
+            <button id="aiGenerate" class="export btn-accent" type="button">
+              Run AI
+            </button>
+            <!-- Status messages shown below the button. -->
+            <div id="aiStatus" class="meta-status"></div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Document Metadata Delete: choose which fields to clear, reusing
+           the same checklist pattern as the Export Selected overlay. -->
+      <div id="metaDocInfoOverlay" class="overlay hidden">
+        <div class="modal">
+          <div class="modal-title">Delete Selected Metadata</div>
+          <div id="metaDocList" class="ab-list"></div>
+          <div class="modal-row">
+            <button id="metaSelectAll" class="secondary small">
+              Select All
+            </button>
+            <button id="metaDeselectAll" class="secondary small">
+              None
+            </button>
+          </div>
+          <div class="modal-actions">
+            <div class="modal-actions-row">
+              <button id="metaCancel" class="secondary">Cancel</button>
+              <button id="metaDeleteOk" class="primary">Delete</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI Request Editor: in-panel modal overlay. Large textarea for the
+           full prompt, Save / Cancel buttons, dark theme matching the panel. -->
+      <div id="aiRequestModal" class="ai-modal-overlay hidden">
+        <div class="ai-modal">
+          <div class="ai-modal-title">AI Request Editor</div>
+          <div class="ai-modal-context">
+            Context: <span id="aiModalCtx">Element</span>
+          </div>
+          <textarea
+            id="aiModalPrompt"
+            class="ai-modal-textarea"
+            spellcheck="false"
+          ></textarea>
+          <div class="ai-modal-actions">
+            <button id="aiModalCancel" class="export" type="button">
+              Cancel
+            </button>
+            <button id="aiModalSave" class="export btn-accent" type="button">
+              Save
+            </button>
+          </div>
+        </div>
       </div>
 
       <div id="status">Ready</div>

@@ -39,6 +39,39 @@
   var EXPORT_LOCK_FILE =
     cs.getSystemPath(SystemPath.EXTENSION) + "/exporting.lock";
 
+  // Progress file for long operations (export/generate). Written by JSX,
+  // polled by the panel to show live status updates.
+  var PROGRESS_FILE =
+    cs.getSystemPath(SystemPath.EXTENSION) + "/export_progress.txt";
+  var _progressTimer = null;
+
+  function readProgress() {
+    try {
+      var r = window.cep.fs.readFile(PROGRESS_FILE);
+      if (r && r.err === 0 && r.data) {
+        return String(r.data).replace(/\r?\n$/, "");
+      }
+    } catch (e) {}
+    return "";
+  }
+
+  function startProgressPolling() {
+    stopProgressPolling();
+    _progressTimer = setInterval(function () {
+      var text = readProgress();
+      if (text) {
+        setStatus(text);
+      }
+    }, 200);
+  }
+
+  function stopProgressPolling() {
+    if (_progressTimer !== null) {
+      clearInterval(_progressTimer);
+      _progressTimer = null;
+    }
+  }
+
   function saveExportFolder(path) {
     try {
       window.cep.fs.writeFile(EXPORT_FOLDER_FILE, path);
@@ -86,8 +119,9 @@
   // synchronously (e.g. the panel is torn down mid-call). Without this, a
   // crashed export would leave exporting.lock behind and the Metadata panel
   // would stay suspended forever.
-  function exportWithLock(prefix, indices, folder) {
+  function exportWithLock(prefix, indices, folder, csvOnly, includeJpg, enableCsv) {
     setExportLock();
+    startProgressPolling();
     var call =
       'exportArtboards("' +
       jsxString(prefix) +
@@ -95,16 +129,22 @@
       indices.join(",") +
       '],"' +
       jsxString(folder) +
-      '")';
+      '",' +
+      (csvOnly ? "true" : "false") +
+      "," +
+      (includeJpg ? "true" : "false") +
+      "," +
+      (enableCsv ? "true" : "false") +
+      ")";
     try {
       evalJsx(["VF_Common.jsx", "VF_Export.jsx"], call, function (result) {
         clearExportLock();
+        stopProgressPolling();
         showResult(result);
       });
     } catch (e) {
-      // evalJsx itself failed (panel closed, host gone) — release the lock so
-      // a later export or the Metadata panel is not blocked indefinitely.
       clearExportLock();
+      stopProgressPolling();
     }
   }
 
@@ -170,24 +210,60 @@
   window.onload = function () {
     setToggle(true);
 
-    document.getElementById("generate").onclick = function () {
-      run("VF_Generate.jsx", "Generated", function () {
-        setToggle(false);
+    var allowMirroringCb = document.getElementById("allowMirroring");
+    if (allowMirroringCb) {
+      try {
+        allowMirroringCb.checked = JSON.parse(localStorage.getItem("vf_allowMirroring") || "true");
+      } catch (e) {
+        allowMirroringCb.checked = true;
+      }
+      allowMirroringCb.addEventListener("change", function () {
+        try {
+          localStorage.setItem("vf_allowMirroring", JSON.stringify(allowMirroringCb.checked));
+        } catch (e) {}
       });
+    }
+
+    document.getElementById("generate").onclick = function () {
+      var allowMirroring = document.getElementById("allowMirroring").checked;
+      startProgressPolling();
+      evalJsx(
+        ["VF_Common.jsx"],
+        'generate("all", ' + allowMirroring + ")",
+        function (result) {
+          stopProgressPolling();
+          showResult(result);
+          setToggle(false);
+        }
+      );
     };
 
     document.getElementById("generateS").onclick = function () {
-      evalJsx(["VF_Common.jsx"], 'generate("s")', function (result) {
-        showResult(result);
-        setToggle(false);
-      });
+      var allowMirroring = document.getElementById("allowMirroring").checked;
+      startProgressPolling();
+      evalJsx(
+        ["VF_Common.jsx"],
+        'generate("s", ' + allowMirroring + ")",
+        function (result) {
+          stopProgressPolling();
+          showResult(result);
+          setToggle(false);
+        }
+      );
     };
 
     document.getElementById("generateSK").onclick = function () {
-      evalJsx(["VF_Common.jsx"], 'generate("sk")', function (result) {
-        showResult(result);
-        setToggle(false);
-      });
+      var allowMirroring = document.getElementById("allowMirroring").checked;
+      startProgressPolling();
+      evalJsx(
+        ["VF_Common.jsx"],
+        'generate("sk", ' + allowMirroring + ")",
+        function (result) {
+          stopProgressPolling();
+          showResult(result);
+          setToggle(false);
+        }
+      );
     };
 
     document.getElementById("clear").onclick = function () {
@@ -232,12 +308,18 @@
 
     document.getElementById("exportBtn").onclick = function () {
       var prefix = document.getElementById("prefix").value || "";
-      // Use the full path (currentExportFolder), not the shortened display.
       var folder = currentExportFolder || "";
-      // exportWithLock holds the shared lock and ALWAYS clears it afterwards
-      // (normal result or synchronous failure), so the Metadata panel never
-      // stays suspended after a crashed export.
-      exportWithLock(prefix, [], folder);
+      var includeJpg = document.getElementById("includeJpg").checked;
+      var enableCsv = document.getElementById("enableCsv").checked;
+      exportWithLock(prefix, [], folder, false, includeJpg, enableCsv);
+    };
+
+    document.getElementById("exportCsvAllBtn").onclick = function () {
+      var prefix = document.getElementById("prefix").value || "";
+      var folder = currentExportFolder || "";
+      var includeJpg = document.getElementById("includeJpg").checked;
+      var enableCsv = document.getElementById("enableCsv").checked;
+      exportWithLock(prefix, [], folder, true, includeJpg, enableCsv);
     };
 
     // Choose export folder: open a folder picker in Illustrator (starting at
@@ -313,9 +395,30 @@
       overlay.classList.add("hidden");
 
       var prefix = document.getElementById("prefix").value || "";
-      // Use the full path (currentExportFolder), not the shortened display.
       var folder = currentExportFolder || "";
-      exportWithLock(prefix, indices, folder);
+      var includeJpg = document.getElementById("includeJpg").checked;
+      var enableCsv = document.getElementById("enableCsv").checked;
+      exportWithLock(prefix, indices, folder, false, includeJpg, enableCsv);
+    };
+
+    document.getElementById("abExportCsv").onclick = function () {
+      var overlay = document.getElementById("abOverlay");
+      var checked = overlay.querySelectorAll("#abList input:checked");
+      if (checked.length === 0) {
+        overlay.classList.add("hidden");
+        return;
+      }
+      var indices = [];
+      for (var i = 0; i < checked.length; i++) {
+        indices.push(parseInt(checked[i].value, 10));
+      }
+      overlay.classList.add("hidden");
+
+      var prefix = document.getElementById("prefix").value || "";
+      var folder = currentExportFolder || "";
+      var includeJpg = document.getElementById("includeJpg").checked;
+      var enableCsv = document.getElementById("enableCsv").checked;
+      exportWithLock(prefix, indices, folder, true, includeJpg, enableCsv);
     };
 
     // --- Remap Placeholders ---
@@ -382,7 +485,7 @@
       var cb = document.createElement("input");
       cb.type = "checkbox";
       cb.value = String(i);
-      cb.checked = true;
+      cb.checked = false;
       label.appendChild(cb);
       label.appendChild(document.createTextNode(names[i] || "artboard_" + i));
       list.appendChild(label);
@@ -429,4 +532,9 @@
   }
 
   // ===== (Metadata UI moved to the separate Metadata panel: js/metadata.js) =====
+
+  // Cleanup progress polling when the panel unloads.
+  window.addEventListener("unload", function () {
+    stopProgressPolling();
+  });
 })();

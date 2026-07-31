@@ -24,6 +24,10 @@ function isCopyAppearance(name) {
 // (findTarget, containsTarget, removeGeneratedArt, hideTargets) honors it.
 var gGenMode = "all";
 
+// If true, mirrored targets are mirrored during generation. If false,
+// mirroring is disabled but all other transformations remain active.
+var gAllowMirroring = true;
+
 // True if a target name should be generated in the current mode.
 function isTargetForMode(name, mode) {
   if (mode === "s") return /^S\d*$/.test(name);
@@ -98,6 +102,33 @@ function genLog(msg) {
   } catch (e) {}
 }
 
+// ---- Progress reporting ----
+// Writes the latest progress message to a separate file that the CEP panel
+// polls during long operations. The file is overwritten (not appended) so
+// the panel always sees the current status.
+var _progressPath = null;
+function progressLog(msg) {
+  try {
+    if (_progressPath === null) {
+      _progressPath = File($.fileName).parent + "/export_progress.txt";
+    }
+    var f = new File(_progressPath);
+    f.open("w");
+    f.writeln(msg || "");
+    f.close();
+  } catch (e) {}
+}
+function clearProgress() {
+  try {
+    if (_progressPath === null) {
+      _progressPath = File($.fileName).parent + "/export_progress.txt";
+    }
+    var f = new File(_progressPath);
+    f.open("w");
+    f.close();
+  } catch (e) {}
+}
+
 // Snapshot of the current app.selection: count + typename of each item.
 function _selState(label) {
   var s = null;
@@ -132,9 +163,13 @@ function _errState(e) {
   return s;
 }
 
-function generate(mode) {
+function generate(mode, allowMirroring) {
   // Default to "all" when called without a mode (e.g. legacy VF_Generate.jsx).
   gGenMode = mode || "all";
+  gAllowMirroring = (typeof allowMirroring !== "undefined") ? allowMirroring : true;
+
+  clearProgress();
+  progressLog("Starting generation...");
 
   genLog("generate: START mode=" + gGenMode + " $.fileName=" + ($.fileName || "(unknown)") + " " + _docState(""));
 
@@ -143,6 +178,7 @@ function generate(mode) {
 
   if (app.documents.length === 0) {
     vfError("No document.");
+    progressLog("Generation failed: no document");
     return vfResult();
   }
 
@@ -152,13 +188,17 @@ function generate(mode) {
 
   if (!masterLayer || masterLayer.pageItems.length === 0) {
     vfError("Click Set Element first.");
+    progressLog("Generation failed: no MASTER layer");
     return vfResult();
   }
 
   if (!placeholdersLayer) {
     vfError("Layer not found: PLACEHOLDERS.");
+    progressLog("Generation failed: PLACEHOLDERS layer not found");
     return vfResult();
   }
+
+  progressLog("Reading layers...");
 
   // Build a map: MASTER number -> source item. MASTER/MASTER1 -> 1, MASTER3 -> 3.
   var masterByNumber = {};
@@ -172,25 +212,33 @@ function generate(mode) {
   // text frames — original single-text-master behavior is preserved exactly.
   if (masterLayer.pageItems[0].typename === "TextFrame") {
     genLog("generate: TEXT MASTER branch (first MASTER item is TextFrame) — replacePlaceholderText path");
+    progressLog("Replacing placeholder text...");
     try {
       replacePlaceholderText(placeholdersLayer, masterLayer.pageItems[0].contents);
+      progressLog("Generation complete");
       vfSuccess("Generated (text)");
     } catch (e) {
       vfError("Error: " + e.message);
+      progressLog("Generation failed: " + e.message);
       genLog("generate: text branch CAUGHT " + _errState(e));
     }
     return vfResult();
   }
   genLog("generate: GRAPHIC MASTER branch (fillPlaceholderGroup path)");
+  progressLog("Filling placeholder groups...");
 
   try {
-    for (var i = 0; i < placeholdersLayer.groupItems.length; i++) {
-      fillPlaceholderGroup(placeholdersLayer.groupItems[i], masterByNumber);
+    var placeholderGroups = [];
+    findPlaceholderGroups(placeholdersLayer, placeholderGroups);
+    for (var i = 0; i < placeholderGroups.length; i++) {
+      fillPlaceholderGroup(placeholderGroups[i], masterByNumber);
     }
     hideTargets();
+    progressLog("Generation complete");
     vfSuccess("Generated (" + gGenMode + ")");
   } catch (e) {
     vfError("Error: " + e.message);
+    progressLog("Generation failed: " + e.message);
     genLog("generate: CAUGHT " + _errState(e));
   }
 
@@ -423,11 +471,7 @@ function scaleToFit(item, data) {
 }
 
 function rotateToTarget(item, data) {
-  // Mirror FIRST, then rotate. The flip must be applied in the source's own
-  // frame; the final rotation then aligns the already-flipped source with the
-  // target. Rotating first and mirroring after produced wrong results for
-  // horizontally mirrored + rotated targets (the mirror axis ended up rotated).
-  if (data.mirrored) {
+  if (data.mirrored && gAllowMirroring) {
     item.resize(-100, 100);
     item.rotate(180);
   }
@@ -487,8 +531,10 @@ function setTargetsVisible(visible) {
   var layer = getLayer(app.activeDocument, "PLACEHOLDERS");
   if (!layer) return;
 
-  for (var i = 0; i < layer.groupItems.length; i++) {
-    setTargetsVisibleInGroup(layer.groupItems[i], visible);
+  var placeholderGroups = [];
+  findPlaceholderGroups(layer, placeholderGroups);
+  for (var i = 0; i < placeholderGroups.length; i++) {
+    setTargetsVisibleInGroup(placeholderGroups[i], visible);
   }
 }
 
@@ -581,6 +627,68 @@ function findTemplateTargetAnyMode(container) {
   return null;
 }
 
+// True if `container` (any depth) contains a template target (S/SK) regardless
+// of the current generation mode. Used by findPlaceholderGroups to detect
+// clipping-template placeholders inside container groups.
+function containsTargetAnyMode(container) {
+  for (var i = 0; i < container.pageItems.length; i++) {
+    if (isTargetName(container.pageItems[i].name)) return true;
+  }
+  if (container.groupItems) {
+    for (var j = 0; j < container.groupItems.length; j++) {
+      if (containsTargetAnyMode(container.groupItems[j])) return true;
+    }
+  }
+  return false;
+}
+
+// Recursively walk `container` and collect every placeholder group at any
+// depth. A group is a placeholder when one of the following is true:
+//   1. It directly contains a template target (S/SK/...) as a direct child.
+//   2. It has a clipped child group that contains a template target (the
+//      existing clipping-template case).
+// Container groups (clipping masks, structural wrappers) do NOT match either
+// condition and are only traversed.
+function findPlaceholderGroups(container, out) {
+  out = out || [];
+
+  var isPlaceholder = false;
+
+  if (container.typename === "GroupItem") {
+    if (container.pageItems) {
+      for (var i = 0; i < container.pageItems.length; i++) {
+        var item = container.pageItems[i];
+        if (item.parent === container && isTargetName(item.name)) {
+          isPlaceholder = true;
+          break;
+        }
+      }
+    }
+
+    if (!isPlaceholder && container.groupItems) {
+      for (var j = 0; j < container.groupItems.length; j++) {
+        var child = container.groupItems[j];
+        if (child.clipped && containsTargetAnyMode(child)) {
+          isPlaceholder = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if (isPlaceholder) {
+    out.push(container);
+    return;
+  }
+
+  var groups = container.groupItems;
+  if (groups) {
+    for (var k = 0; k < groups.length; k++) {
+      findPlaceholderGroups(groups[k], out);
+    }
+  }
+}
+
 function findClippingTemplate(group) {
   for (var i = 0; i < group.groupItems.length; i++) {
     if (group.groupItems[i].clipped && containsTarget(group.groupItems[i])) {
@@ -610,26 +718,45 @@ function replacePlaceholderText(container, text) {
   for (var i = 0; i < container.textFrames.length; i++) {
     var tf = container.textFrames[i];
 
-    // Save the template's original width and horizontal scale before changing
-    // the text, so we can rescale only horizontally afterwards.
-    var oldWidth = tf.width;
-    var oldHorizontalScale = tf.textRange.characterAttributes.horizontalScale;
+    var originalFontSize = tf.textRange.characterAttributes.size;
+    var originalWidth = tf.geometricBounds[2] - tf.geometricBounds[0];
+    var oldBounds = tf.geometricBounds;
+    var oldCenterY = (oldBounds[1] + oldBounds[3]) / 2;
 
-    genLog("replacePlaceholderText: [" + i + "] BEFORE contents typename=" + tf.typename + " oldWidth=" + oldWidth + " oldHScale=" + oldHorizontalScale);
+    genLog("replacePlaceholderText: [" + i + "] BEFORE contents fontSize=" + originalFontSize + " originalWidth=" + originalWidth + " " + _docState(""));
+
     tf.contents = text;
-    genLog("replacePlaceholderText: [" + i + "] AFTER contents newWidth=" + tf.width);
 
-    // Measure the new (unscaled) width and compute a horizontal-scale factor
-    // that brings it back to the original template width. Only the horizontal
-    // scale is changed — font size and text height stay the same (no resize()).
-    var newWidth = tf.width;
-    if (newWidth > 0) {
-      var scale = oldWidth / newWidth;
-      // Don't squeeze below 60% — very long words would become unreadable
-      // "noodles"; at that point the text clearly needs a manual fix.
-      var newHScale = Math.max(60, oldHorizontalScale * scale);
-      tf.textRange.characterAttributes.horizontalScale = newHScale;
-      genLog("replacePlaceholderText: [" + i + "] set horizontalScale=" + newHScale);
+    var newWidth = tf.geometricBounds[2] - tf.geometricBounds[0];
+    genLog("replacePlaceholderText: [" + i + "] AFTER contents newWidth=" + newWidth);
+
+    if (newWidth > 0 && originalWidth > 0) {
+      var scale = originalWidth / newWidth;
+      var newFontSize = originalFontSize * scale;
+      if (newFontSize < 4) newFontSize = 4;
+
+      tf.textRange.characterAttributes.size = newFontSize;
+      genLog("replacePlaceholderText: [" + i + "] set fontSize=" + newFontSize + " (scale=" + scale + ")");
+
+      var adjustedWidth = tf.geometricBounds[2] - tf.geometricBounds[0];
+      var diff = Math.abs(adjustedWidth - originalWidth);
+
+      if (diff > 1 && adjustedWidth > 0) {
+        var correctionScale = originalWidth / adjustedWidth;
+        var correctedFontSize = newFontSize * correctionScale;
+        if (correctedFontSize < 4) correctedFontSize = 4;
+        tf.textRange.characterAttributes.size = correctedFontSize;
+        genLog("replacePlaceholderText: [" + i + "] CORRECTION fontSize=" + correctedFontSize + " (correctionScale=" + correctionScale + ")");
+      }
+
+      var newBounds = tf.geometricBounds;
+      var newCenterY = (newBounds[1] + newBounds[3]) / 2;
+      var dy = oldCenterY - newCenterY;
+      if (Math.abs(dy) > 0.01) {
+        tf.translate(0, dy);
+      }
+
+      genLog("replacePlaceholderText: [" + i + "] final fontSize=" + tf.textRange.characterAttributes.size + " dy=" + dy);
     }
   }
   genLog("replacePlaceholderText: END");
@@ -903,8 +1030,13 @@ var SET_METADATA_VERSION = 1;
 function normalizeStringArray(arr) {
   var out = [];
   if (!arr) return out;
+  var seen = {};
   for (var i = 0; i < arr.length; i++) {
-    if (arr[i] != null && String(arr[i]).length > 0) out.push(String(arr[i]));
+    var s = String(arr[i]);
+    if (s.length === 0) continue;
+    if (s !== "*" && seen[s]) continue;
+    seen[s] = true;
+    out.push(s);
   }
   return out;
 }
@@ -1137,6 +1269,7 @@ function setVfId(item, id) {
     meta.version = ELEMENT_METADATA_VERSION;
     meta.id = id;
     item.note = jsonStringify(meta);
+    invalidateItemCache();
   } catch (e) {}
 }
 
@@ -1156,7 +1289,7 @@ function ensureVfId(item) {
 function getElementMeta(item) {
   try {
     var meta = loadElementMetadata(item.note || "");
-    return { objectName: meta.objectName, keywords: meta.keywords };
+    return { objectName: meta.objectName, keywords: meta.keywords || [] };
   } catch (e) {
     return { objectName: "", keywords: [] };
   }
@@ -1173,6 +1306,7 @@ function setElementMeta(item, objectName, keywords) {
     meta.keywords = normalizeStringArray(keywords);
     if (!meta.id) meta.id = generateVfId();
     item.note = jsonStringify(meta);
+    invalidateItemCache();
   } catch (e) {}
 }
 
@@ -1325,6 +1459,7 @@ function createSet(memberItems) {
   };
   var tf = getSetFrame(doc, setId, true);
   tf.note = jsonStringify(obj);
+  invalidateSetCache(); // a Set was created — drop the cached index
   return setId;
 }
 
@@ -1356,6 +1491,7 @@ function setSetMeta(setId, title, keywords) {
   meta.keywords = normalizeStringArray(keywords);
   if (!meta.members) meta.members = [];
   tf.note = jsonStringify(meta);
+  invalidateSetCache(); // a Set was modified — drop the cached index
   ensureNotMetadataActiveLayer(app.activeDocument);
 }
 
@@ -1371,6 +1507,37 @@ function getAllSets() {
     out[m[1]] = getSetMeta(m[1]);
   }
   return out;
+}
+
+// ===== Set lookup cache (for O(1) automatic polling) =====
+// Automatic polling (findExistingSetForSelection) must never scan every
+// Set frame on each cycle. We keep an in-memory index of Sets, keyed by
+// a sorted member-id signature, and rebuild it ONLY when Sets change
+// (create / delete / modify). invalidateSetCache() is called from every
+// Set-mutating path so the index stays correct without per-poll scans.
+// The ExtendScript engine persists these globals across evalScript calls,
+// so the cache survives between panel polling ticks.
+var _vfSetCache = null; // { bySig: { "idA,idB": setId, ... } } | null
+
+function invalidateSetCache() {
+  _vfSetCache = null;
+}
+
+// Build (or return the cached) index of all Sets. The signature of a Set
+// is its member ids sorted and joined — order-independent, matching the
+// "same set of VF_IDs" rule used by findExistingSetForSelection.
+function getSetIndex() {
+  if (_vfSetCache) return _vfSetCache;
+  var index = { bySig: {} };
+  var all = getAllSets();
+  for (var key in all) {
+    var set = all[key];
+    if (!set || !set.members || set.members.length === 0) continue;
+    var sig = set.members.slice().sort().join(",");
+    index.bySig[sig] = key;
+  }
+  _vfSetCache = index;
+  return index;
 }
 
 // ===== Artboard metadata (stored in VF_METADATA, keyed by artboard NAME) =====
@@ -1424,7 +1591,7 @@ function getArtboardFrame(doc, name, create) {
 }
 
 // Load/migrate an artboard metadata note into the current schema:
-// { version, name, title, keywords:[] }.
+// { version, name, title, shortTitle, keywords:[] }.
 function loadArtboardMetadata(note) {
   note = note || "";
   var obj = jsonParse(note);
@@ -1433,12 +1600,14 @@ function loadArtboardMetadata(note) {
       version: ARTBOARD_METADATA_VERSION,
       name: obj.name != null ? String(obj.name) : "",
       title: obj.title != null ? String(obj.title) : "",
+      shortTitle: obj.shortTitle != null ? String(obj.shortTitle) : "",
       keywords: normalizeStringArray(obj.keywords)
     };
   }
   return {
     name: "",
     title: "",
+    shortTitle: "",
     keywords: []
   };
 }
@@ -1453,9 +1622,9 @@ function getArtboardMeta(name) {
   return meta;
 }
 
-// Save (or update) an artboard's Title and Keywords. Only title/keywords are
+// Save (or update) an artboard's Title, Short Title and Keywords. Only title/shortTitle/keywords are
 // overwritten; the frame is keyed by name.
-function setArtboardMeta(name, title, keywords) {
+function setArtboardMeta(name, title, shortTitle, keywords) {
   var doc = app.activeDocument;
   var tf = getArtboardFrame(doc, name, true);
   if (!tf) return;
@@ -1463,6 +1632,7 @@ function setArtboardMeta(name, title, keywords) {
   meta.version = ARTBOARD_METADATA_VERSION;
   meta.name = name;
   meta.title = title || "";
+  meta.shortTitle = shortTitle || "";
   meta.keywords = normalizeStringArray(keywords);
   tf.note = jsonStringify(meta);
   ensureNotMetadataActiveLayer(app.activeDocument);
@@ -1525,6 +1695,9 @@ function collectArtboardMetadata(doc, abRect, layers) {
 // nesting depth) whose bounds fall inside `abRect`. Returns an array of
 // unique VF_ID strings. Used by the Adobe Stock CSV export to decide whether
 // an artboard holds a single artwork or a Set, and to match the exact Set.
+// Only items with valid element metadata ({objectName}) are counted, to keep
+// this list consistent with collectArtboardMetadata() and avoid Service
+// objects / accidental VF_IDs breaking Set matching.
 function collectArtboardVfIds(container, abRect, out) {
   if (!container) return;
   var items = container.pageItems;
@@ -1532,6 +1705,8 @@ function collectArtboardVfIds(container, abRect, out) {
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       if (!isInArtboard(item.geometricBounds, abRect)) continue;
+      var meta = getElementMeta(item);
+      if (!meta.objectName) continue;
       var vfid = getVfId(item);
       if (vfid && !arrayContains(out, vfid)) out.push(vfid);
     }
@@ -1546,10 +1721,11 @@ function collectArtboardVfIds(container, abRect, out) {
 
 // True if the bounds are inside the artboard at all (used by export).
 function isInArtboard(b, abRect) {
-  var cx = (b[0] + b[2]) / 2;
-  var cy = (b[1] + b[3]) / 2;
-  return (
-    cx >= abRect[0] && cx <= abRect[2] && cy <= abRect[1] && cy >= abRect[3]
+  return !(
+    b[2] <= abRect[0] || // объект полностью слева
+    b[0] >= abRect[2] || // полностью справа
+    b[1] <= abRect[3] || // полностью ниже
+    b[3] >= abRect[1]    // полностью выше
   );
 }
 
@@ -1582,15 +1758,38 @@ function setArtworkMetadata(vfid, objectName, keywords) {
   var item = findItemByVfId(vfid);
   if (item) setElementMeta(item, objectName, keywords);
 }
+var _vfItemCache = null;
 
+function invalidateItemCache() {
+    _vfItemCache = null;
+}
+
+function getItemCache() {
+
+    if (_vfItemCache)
+        return _vfItemCache;
+
+    _vfItemCache = {};
+
+    var doc = app.activeDocument;
+
+    for (var i = 0; i < doc.pageItems.length; i++) {
+        var item = doc.pageItems[i];
+        var id = getVfId(item);
+        if (id)
+            _vfItemCache[id] = item;
+    }
+
+    return _vfItemCache;
+}
 // Resolve a PageItem by its VF_ID (linear scan; documents are small).
 function findItemByVfId(vfid) {
-  if (!vfid || app.documents.length === 0) return null;
-  var doc = app.activeDocument;
-  for (var i = 0; i < doc.pageItems.length; i++) {
-    if (getVfId(doc.pageItems[i]) === vfid) return doc.pageItems[i];
-  }
-  return null;
+    if (!vfid)
+        return null;
+
+    var cache = getItemCache();
+
+    return cache[vfid] || null;
 }
 
 // ES3-safe Array membership check (ExtendScript has no Array.prototype.indexOf).
@@ -1628,10 +1827,15 @@ function findSetByMemberVfid(vfid) {
 function findSetsWithExactMembers(vfids) {
   var result = [];
   if (!vfids || vfids.length === 0) return result;
+
   var all = getAllSets();
+
   for (var id in all) {
     var set = all[id];
-    if (!set || !set.members || set.members.length === 0) continue;
+    if (!set || !set.members) continue;
+
+    // Subset match: every Set member must be present on the artboard.
+    // The artboard may contain additional objects beyond this Set.
     var allPresent = true;
     for (var i = 0; i < set.members.length; i++) {
       if (!arrayContains(vfids, set.members[i])) {
@@ -1639,8 +1843,10 @@ function findSetsWithExactMembers(vfids) {
         break;
       }
     }
+
     if (allPresent) result.push(set);
   }
+
   return result;
 }
 
@@ -1649,6 +1855,13 @@ function findSetsWithExactMembers(vfids) {
 // newline also triggers quoting (we always quote to be safe).
 function csvEscapeCell(s) {
   s = s == null ? "" : String(s);
-  var out = '"' + s.replace(/"/g, '""') + '"';
-  return out;
+  var needsQuotes =
+    s.indexOf('"') >= 0 ||
+    s.indexOf(',') >= 0 ||
+    s.indexOf('\n') >= 0 ||
+    s.indexOf('\r') >= 0;
+  if (needsQuotes) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
 }

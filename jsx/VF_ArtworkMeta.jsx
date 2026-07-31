@@ -2,6 +2,8 @@
 
 $.evalFile(File($.fileName).parent + "/VF_Common.jsx");
 
+var MAX_SELECTION_ANALYSIS = 30;
+
 // ===== Artwork metadata panel support =====
 // Two INDEPENDENT subsystems (see VF_Common.jsx):
 //   1) ELEMENT metadata — belongs to ONE selected PageItem; stored in the
@@ -193,6 +195,13 @@ function getSelectionPanelMode() {
     return '{"mode":"' + mode + '"}';
   }
 
+  // Early exit for very large selections: skip artboard analysis and
+  // treat as "multiple" immediately. This keeps Ctrl+A in complex
+  // documents instant.
+  if (app.selection.length > MAX_SELECTION_ANALYSIS) {
+    return '{"mode":"multiple"}';
+  }
+
   var doc = app.activeDocument;
   var abRect = null;
   try {
@@ -235,6 +244,9 @@ function createSelectedSet() {
   }
   if (!app.selection || app.selection.length < 2) {
     return '{"success":false,"error":"Select two or more elements to create a Set."}';
+  }
+  if (app.selection.length > MAX_SELECTION_ANALYSIS) {
+    return '{"success":false,"error":"Selection too large (" + app.selection.length + " items). Max " + MAX_SELECTION_ANALYSIS + " for Set creation."}';
   }
   var items = [];
   for (var i = 0; i < app.selection.length; i++) {
@@ -298,40 +310,34 @@ function createSelectedSet() {
 
 // Read-only: return the id of an EXISTING Set whose members exactly match the
 // current selection (same count, same set of VF_IDs; order does not matter),
-// or "" if none. Does NOT create a Set. Used by the panel to decide whether
-// to show "Set Object" (create) or "Delete Object" (already a Set).
+// or "" if none. Does NOT create a Set and does NOT mutate the document —
+// it only READS each selected item's existing VF_ID (via getVfId). Missing
+// IDs are treated as "" and simply never match a stored Set, which is correct:
+// a Set can only be detected once its members already carry IDs, and those IDs
+// are assigned by explicit editing operations (createSet / addToSet / etc.),
+// never during automatic polling. This keeps the panel's selection-driven
+// lookup free of note writes that previously froze Illustrator.
+//
+// Performance: the lookup uses the cached Set index (getSetIndex) which is
+// keyed by a sorted member-id signature. Building the signature is O(n log n)
+// over the selection only; the actual match against all Sets is a single
+// O(1) hash lookup. The cache is rebuilt ONLY when Sets change (see
+// invalidateSetCache in VF_Common.jsx), so automatic polling never scans
+// every Set frame on each cycle.
 function findExistingSetForSelection() {
   if (app.documents.length === 0) return '{"setId":""}';
   if (!app.selection || app.selection.length < 2) return '{"setId":""}';
-  var items = [];
-  for (var i = 0; i < app.selection.length; i++) {
-    items.push(app.selection[i]);
-  }
+  if (app.selection.length > MAX_SELECTION_ANALYSIS) return '{"setId":""}';
   var currentIds = [];
-  for (var ci = 0; ci < items.length; ci++) {
-    currentIds.push(ensureVfId(items[ci]));
+  for (var i = 0; i < app.selection.length; i++) {
+    currentIds.push(getVfId(app.selection[i]));
   }
-  var allSets = getAllSets();
-  for (var key in allSets) {
-    var setMembers = allSets[key] ? allSets[key].members : null;
-    if (!setMembers || setMembers.length !== currentIds.length) continue;
-    var matched = true;
-    for (var a = 0; a < currentIds.length; a++) {
-      var found = false;
-      for (var b = 0; b < setMembers.length; b++) {
-        if (setMembers[b] === currentIds[a]) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        matched = false;
-        break;
-      }
-    }
-    if (matched) return '{"setId":"' + vfEscapeJson(key) + '"}';
-  }
-  return '{"setId":""}';
+  // Order-independent signature: sort + join. Matches the index built by
+  // getSetIndex() in VF_Common.jsx.
+  var sig = currentIds.slice().sort().join(",");
+  var index = getSetIndex();
+  var setId = index.bySig[sig] || "";
+  return '{"setId":"' + vfEscapeJson(setId) + '"}';
 }
 
 // Delete a single Set (by id) — removes its SET_<id> frame from VF_METADATA.
@@ -368,6 +374,7 @@ function deleteSet(setId) {
   }
   try {
     tf.remove();
+    invalidateSetCache(); // a Set was deleted — drop the cached index
   } finally {
     layer.locked = wasLocked;
     for (var a = 0; a < ancestors.length; a++) {
@@ -375,6 +382,32 @@ function deleteSet(setId) {
     }
   }
   vfSuccess("Set deleted.");
+  return vfResult();
+}
+
+// Unmake Set: completely remove the Set entity from Vector Factory.
+// Unlike clearing metadata, this deletes the SET_<id> frame entirely:
+// members, title, keywords, and all other metadata are removed.
+// Objects that were members remain in the document unchanged.
+function unmakeSet(setId) {
+  VF_ERRORS = [];
+  VF_SUCCESS = "";
+  if (!setId) {
+    vfError("No Set id.");
+    return vfResult();
+  }
+  var result = deleteSet(setId);
+  try {
+    var parsed = JSON.parse(result);
+    if (parsed && parsed.errors) {
+      for (var i = 0; i < parsed.errors.length; i++) {
+        vfError(parsed.errors[i]);
+      }
+    }
+    if (parsed && parsed.success) {
+      vfSuccess(parsed.success);
+    }
+  } catch (e) {}
   return vfResult();
 }
 
@@ -413,18 +446,17 @@ function getSetMetaById(setId) {
 function getSetMemberTitles(setId) {
   var meta = getSetMeta(setId);
   if (!meta) return '{"success":false,"error":"Set not found."}';
+
   var members = meta.members || [];
   var nameParts = [];
+
   for (var i = 0; i < members.length; i++) {
     var item = findItemByVfId(members[i]);
-    var name = "";
-    if (item) {
-      var em = getElementMeta(item);
-      name = em ? em.objectName : "";
-    }
-    if (!name || name.length === 0) name = members[i]; // fall back to VF_ID
+    var em = getElementMeta(item);
+    var name = em.objectName || members[i];
     nameParts.push('"' + vfEscapeJson(name) + '"');
   }
+
   return '{"success":true,"names":[' + nameParts.join(",") + "]}";
 }
 
@@ -449,6 +481,7 @@ function deleteAllSets() {
       removed++;
     }
   }
+  invalidateSetCache(); // all Sets in that layer were deleted
   vfSuccess("Removed " + removed + " metadata layer(s).");
   return vfResult();
 }
@@ -499,7 +532,7 @@ function setSetMetaById(setId, title, keywordsJson) {
 // ---------- ARTBOARD metadata (keyed by artboard NAME) ----------
 
 // Read an artboard's metadata by its current name. Shape:
-//   { "success": true, "name": "...", "title": "...", "keywords": [...] }
+//   { "success": true, "name": "...", "title": "...", "shortTitle": "...", "keywords": [...] }
 //   { "success": false, "error": "Artboard not found." }
 function getArtboardMetaByName(name) {
   var meta = getArtboardMeta(name);
@@ -513,15 +546,17 @@ function getArtboardMetaByName(name) {
     vfEscapeJson(meta.name) +
     '","title":"' +
     vfEscapeJson(meta.title) +
+    '","shortTitle":"' +
+    vfEscapeJson(meta.shortTitle || "") +
     '","keywords":[' +
     kwParts.join(",") +
     ']}'
   );
 }
 
-// Save an artboard's Title and Keywords by its current name. `keywordsJson`
-// accepts BOTH a string and an Array (same guard as setSetMetaById).
-function setArtboardMetaByName(name, title, keywordsJson) {
+// Save an artboard's Title, Short Title and Keywords by its current name.
+// `keywordsJson` accepts BOTH a string and an Array (same guard as setSetMetaById).
+function setArtboardMetaByName(name, title, shortTitle, keywordsJson) {
   VF_ERRORS = [];
   VF_SUCCESS = "";
   if (!name) {
@@ -548,7 +583,410 @@ function setArtboardMetaByName(name, title, keywordsJson) {
       }
     }
   } catch (e) {}
-  setArtboardMeta(name, title, keywords);
+  setArtboardMeta(name, title, shortTitle, keywords);
   vfSuccess("Artboard metadata saved.");
+  return vfResult();
+}
+
+// ---------- METADATA RECORDS (element / set / artboard) ----------
+
+function _isServiceLayerName(name) {
+  return (
+    name === "VF_METADATA" ||
+    name === "BG_CLIP" ||
+    name === "FG_CLIP" ||
+    name === "ART_CLIP"
+  );
+}
+
+function _isInServiceContext(item) {
+  try {
+    var cur = item.parent;
+    while (cur) {
+      if (cur.typename === "GroupItem" && cur.clipped) return true;
+      cur = cur.parent;
+    }
+  } catch (e) {}
+  try {
+    if (_isServiceLayerName(item.layer.name)) return true;
+  } catch (e) {}
+  return false;
+}
+
+function deleteElementMetaByVfId(vfid) {
+  var doc = app.activeDocument;
+  var cleared = 0;
+  for (var i = 0; i < doc.pageItems.length; i++) {
+    if (getVfId(doc.pageItems[i]) === vfid) {
+      doc.pageItems[i].note = "";
+      cleared++;
+    }
+  }
+  if (cleared > 0) invalidateItemCache();
+}
+
+function deleteArtboardMeta(name) {
+  VF_ERRORS = [];
+  VF_SUCCESS = "";
+  if (app.documents.length === 0) {
+    vfError("No document.");
+    return vfResult();
+  }
+  var doc = app.activeDocument;
+  var tf = getArtboardFrame(doc, name, false);
+  if (!tf) {
+    vfError("Artboard metadata not found.");
+    return vfResult();
+  }
+  var layer = tf.parent;
+  var wasLocked = layer.locked;
+  layer.locked = false;
+  var ancestors = [];
+  var p = layer.parent;
+  while (p && p.typename === "Layer") {
+    ancestors.push({ layer: p, locked: p.locked });
+    p.locked = false;
+    p = p.parent;
+  }
+  try {
+    tf.remove();
+  } finally {
+    layer.locked = wasLocked;
+    for (var a = 0; a < ancestors.length; a++) {
+      ancestors[a].layer.locked = ancestors[a].locked;
+    }
+  }
+  vfSuccess("Artboard metadata deleted.");
+  return vfResult();
+}
+
+function getAllMetadataRecords() {
+  if (app.documents.length === 0) return "[]";
+  var parts = [];
+  var doc = app.activeDocument;
+  var seenElements = {};
+
+  for (var i = 0; i < doc.pageItems.length; i++) {
+    var item = doc.pageItems[i];
+    var vfid = getVfId(item);
+    if (!vfid) continue;
+    if (seenElements[vfid]) continue;
+    if (isLikelyBackground(item)) continue;
+    seenElements[vfid] = true;
+    var meta = getElementMeta(item);
+    if (!meta.objectName) continue;
+    var label = "Object: " + meta.objectName;
+    parts.push(
+      '{"type":"element","id":"' +
+      vfEscapeJson(vfid) +
+      '","label":"' +
+      vfEscapeJson(label) +
+      '"}'
+    );
+  }
+
+  var layer = getLayer(doc, "VF_METADATA");
+  if (layer) {
+    for (var j = 0; j < layer.textFrames.length; j++) {
+      var tf = layer.textFrames[j];
+      var setM = tf.name.match(/^SET_(.+)$/);
+      if (setM) {
+        var set = getSetMeta(setM[1]);
+        var title = set && set.title && set.title.length > 0 ? set.title : setM[1];
+        parts.push(
+          '{"type":"set","id":"' +
+          vfEscapeJson(setM[1]) +
+          '","label":"Set: ' +
+          vfEscapeJson(title) +
+          '"}'
+        );
+      }
+    }
+
+    for (var a = 0; a < doc.artboards.length; a++) {
+      var abName = doc.artboards[a].name;
+      if (getArtboardFrame(doc, abName, false)) {
+        parts.push(
+          '{"type":"artboard","id":"' +
+          vfEscapeJson(abName) +
+          '","label":"Artboard: ' +
+          vfEscapeJson(abName) +
+          '"}'
+        );
+      }
+    }
+  }
+
+  return "[" + parts.join(",") + "]";
+}
+
+function deleteMetadataRecords(recordsJson) {
+  VF_ERRORS = [];
+  VF_SUCCESS = "";
+  if (app.documents.length === 0) {
+    vfError("No document.");
+    return vfResult();
+  }
+  var records = [];
+  try {
+    var parsed = jsonParse(recordsJson);
+    if (parsed instanceof Array) {
+      for (var a = 0; a < parsed.length; a++) {
+        var rec = parsed[a];
+        if (rec && rec.type && rec.id) records.push(rec);
+      }
+    }
+  } catch (e) {}
+
+  for (var r = 0; r < records.length; r++) {
+    var rec = records[r];
+    if (rec.type === "element") {
+      deleteElementMetaByVfId(rec.id);
+    } else if (rec.type === "set") {
+      var setResult = deleteSet(rec.id);
+      try {
+        var setParsed = jsonParse(setResult);
+        if (setParsed && setParsed.errors) {
+          for (var se = 0; se < setParsed.errors.length; se++) {
+            vfError(setParsed.errors[se]);
+          }
+        }
+      } catch (e) {}
+    } else if (rec.type === "artboard") {
+      var abResult = deleteArtboardMeta(rec.id);
+      try {
+        var abParsed = jsonParse(abResult);
+        if (abParsed && abParsed.errors) {
+          for (var ae = 0; ae < abParsed.errors.length; ae++) {
+            vfError(abParsed.errors[ae]);
+          }
+        }
+      } catch (e) {}
+    }
+  }
+
+  if (VF_ERRORS.length === 0) {
+    vfSuccess("Deleted " + records.length + " record(s).");
+  }
+  return vfResult();
+}
+
+function deleteAllMetadataRecords() {
+  VF_ERRORS = [];
+  VF_SUCCESS = "";
+  if (app.documents.length === 0) {
+    vfError("No document.");
+    return vfResult();
+  }
+  var doc = app.activeDocument;
+  var count = 0;
+
+  var layer = getLayer(doc, "VF_METADATA");
+  if (layer) {
+    var frames = [];
+    for (var i = layer.textFrames.length - 1; i >= 0; i--) {
+      frames.push(layer.textFrames[i]);
+    }
+    for (var f = 0; f < frames.length; f++) {
+      var tf = frames[f];
+      var parentLayer = tf.parent;
+      var wasLocked = parentLayer.locked;
+      parentLayer.locked = false;
+      var ancestors = [];
+      var p = parentLayer.parent;
+      while (p && p.typename === "Layer") {
+        ancestors.push({ layer: p, locked: p.locked });
+        p.locked = false;
+        p = p.parent;
+      }
+      try {
+        tf.remove();
+        count++;
+      } finally {
+        parentLayer.locked = wasLocked;
+        for (var a = 0; a < ancestors.length; a++) {
+          ancestors[a].layer.locked = ancestors[a].locked;
+        }
+      }
+    }
+    invalidateSetCache();
+  }
+  ensureNotMetadataActiveLayer(doc);
+
+  for (var j = 0; j < doc.pageItems.length; j++) {
+    if (getVfId(doc.pageItems[j])) {
+      doc.pageItems[j].note = "";
+      count++;
+    }
+  }
+  invalidateItemCache();
+
+  vfSuccess("Deleted " + count + " metadata record(s).");
+  return vfResult();
+}
+
+// ---------- DIAGNOSTICS ----------
+
+function _itemLayerName(item) {
+  try { return item.layer.name; } catch (e) { return "unknown"; }
+}
+
+function _parentGroupChain(item) {
+  var names = [];
+  var p = item.parent;
+  while (p && p.typename === "GroupItem") {
+    names.push(p.name || "(unnamed group)");
+    p = p.parent;
+  }
+  return names.join(" > ");
+}
+
+function _isInLayer(item, layerName) {
+  try {
+    var cur = item;
+    while (cur) {
+      if (cur.typename === "Layer" && cur.name === layerName) return true;
+      cur = cur.parent;
+    }
+  } catch (e) {}
+  return false;
+}
+
+function _isClippingAncestor(item) {
+  try {
+    var cur = item.parent;
+    while (cur) {
+      if (cur.typename === "GroupItem" && cur.clipped) return true;
+      cur = cur.parent;
+    }
+  } catch (e) {}
+  return false;
+}
+
+function diagnoseMetadataRecords() {
+  if (app.documents.length === 0) return "No document.";
+  var doc = app.activeDocument;
+  var rows = [];
+  rows.push(
+    "VF_ID\tName\tLayer\tGroup Path\tType\tHidden\tLocked\t" +
+    "PLACEHOLDERS\tMASTER\tBG\tFG\tServiceGroup"
+  );
+
+  var seen = {};
+  for (var i = 0; i < doc.pageItems.length; i++) {
+    var item = doc.pageItems[i];
+    var vfid = getVfId(item);
+    if (!vfid) continue;
+    if (seen[vfid]) continue;
+    seen[vfid] = true;
+    var meta = getElementMeta(item);
+    var name = meta.objectName || "";
+    rows.push(
+      vfid + "\t" +
+      name + "\t" +
+      _itemLayerName(item) + "\t" +
+      _parentGroupChain(item) + "\t" +
+      item.typename + "\t" +
+      (item.hidden ? "Yes" : "No") + "\t" +
+      (item.locked ? "Yes" : "No") + "\t" +
+      (_isInLayer(item, "PLACEHOLDERS") ? "Yes" : "No") + "\t" +
+      (_isInLayer(item, "MASTER") ? "Yes" : "No") + "\t" +
+      (_isInLayer(item, "BG") ? "Yes" : "No") + "\t" +
+      (_isInLayer(item, "FG") ? "Yes" : "No") + "\t" +
+      (_isClippingAncestor(item) ? "Yes" : "No")
+    );
+  }
+
+  return rows.join("\n");
+}
+
+// Delete the metadata that is currently active based on the selection context:
+//   - "artboard" mode -> delete artboard metadata
+//   - "single" mode   -> delete the selected element's metadata
+//   - "multiple" mode -> delete the existing Set that matches the selection
+// Returns standard {errors, success} result.
+function deleteActiveMetadata() {
+  VF_ERRORS = [];
+  VF_SUCCESS = "";
+  if (app.documents.length === 0) {
+    vfError("No document.");
+    return vfResult();
+  }
+
+  var modeRes;
+  try {
+    modeRes = JSON.parse(getSelectionPanelMode());
+  } catch (e) {
+    modeRes = { mode: "none" };
+  }
+  var mode = modeRes.mode || "none";
+
+  if (mode === "artboard") {
+    var doc = app.activeDocument;
+    var abName = "";
+    try {
+      var idx = doc.artboards.getActiveArtboardIndex();
+      abName = doc.artboards[idx].name;
+    } catch (e) {}
+    if (!abName) {
+      vfError("No active artboard.");
+      return vfResult();
+    }
+    var abResult = deleteArtboardMeta(abName);
+    try {
+      var abParsed = JSON.parse(abResult);
+      if (abParsed && abParsed.errors) {
+        for (var ae = 0; ae < abParsed.errors.length; ae++) {
+          vfError(abParsed.errors[ae]);
+        }
+      }
+      if (abParsed && abParsed.success) {
+        vfSuccess(abParsed.success);
+      }
+    } catch (e) {}
+    return vfResult();
+  }
+
+  if (mode === "single") {
+    if (!app.selection || app.selection.length === 0) {
+      vfError("Nothing selected.");
+      return vfResult();
+    }
+    var item = app.selection[0];
+    var vfid = getVfId(item);
+    if (!vfid) {
+      vfError("Selected item has no VF_ID.");
+      return vfResult();
+    }
+    deleteElementMetaByVfId(vfid);
+    vfSuccess("Element metadata deleted.");
+    return vfResult();
+  }
+
+  if (mode === "multiple") {
+    if (!app.selection || app.selection.length < 2) {
+      vfError("Select 2+ elements to clear Set metadata.");
+      return vfResult();
+    }
+    var setRes = findExistingSetForSelection();
+    var setId = "";
+    try {
+      setId = JSON.parse(setRes).setId || "";
+    } catch (e) {}
+    if (!setId) {
+      vfError("Selection does not form an existing Set.");
+      return vfResult();
+    }
+    // Clear Set metadata (title + keywords) without deleting the Set entity.
+    try {
+      setSetMeta(setId, "", []);
+      vfSuccess("Set metadata cleared.");
+    } catch (e) {
+      vfError("Failed to clear Set metadata: " + e.message);
+    }
+    return vfResult();
+  }
+
+  vfError("Nothing to delete.");
   return vfResult();
 }

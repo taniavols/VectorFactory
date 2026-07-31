@@ -1,27 +1,39 @@
-п»ї//
+//
 #target illustrator
-var TARGET_EXPORT_PIXELS = 25000000;
+$.evalFile(File($.fileName).parent + "/VF_Common.jsx");
+// Target artwork area in pixels (~24 MP). This is the Bounding Box / Artwork
+// size, not the Artboard size. Stays below Shutterstock's 25 MP limit and
+// within Adobe Stock / iStock Getty compatibility.
+var TARGET_EXPORT_PIXELS = 24000000;
 
 // Placeholder groups copied whole (with their appearance effects) during the
 // current artboard's export. After ALL transfers finish, Expand Appearance is
 // run on each so the live effect is baked into geometry. Reset per artboard.
 var gEffectGroups = [];
 
-// ---- Export audit logging (temporary, for diagnosing source-file corruption) ----
-// Writes a line to export_debug.log next to the extension. Used to trace
-// exactly which document is active / saved / closed at each step so we can
-// pinpoint where the ORIGINAL document gets corrupted. Safe no-op if the
-// file cannot be opened.
-var _exportLogPath = null;
-function exportLog(msg) {
+// ---- Progress reporting ----
+// Writes the latest progress message to a separate file that the CEP panel
+// polls during long operations. The file is overwritten (not appended) so
+// the panel always sees the current status.
+var _progressPath = null;
+function progressLog(msg) {
   try {
-    if (_exportLogPath === null) {
-      // Place the log in the extension folder (same dir as the JSX files).
-      _exportLogPath = File($.fileName).parent + "/export_debug.log";
+    if (_progressPath === null) {
+      _progressPath = File($.fileName).parent + "/export_progress.txt";
     }
-    var f = new File(_exportLogPath);
-    f.open("a"); // append
-    f.writeln("[" + (new Date()).toLocaleTimeString() + "] " + msg);
+    var f = new File(_progressPath);
+    f.open("w");
+    f.writeln(msg || "");
+    f.close();
+  } catch (e) {}
+}
+function clearProgress() {
+  try {
+    if (_progressPath === null) {
+      _progressPath = File($.fileName).parent + "/export_progress.txt";
+    }
+    var f = new File(_progressPath);
+    f.open("w");
     f.close();
   } catch (e) {}
 }
@@ -42,11 +54,55 @@ function _docState(label) {
 }
 
 function sanitizeFilename(name) {
-  name = name.replace(/[^a-zA-Z0-9_ ]/g, "");
+  name = String(name || "")
+    .replace(/[^a-zA-Z0-9_ ]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^\s+|\s+$/g, "");
+  if (name.length > 0) {
+    name = name.charAt(0).toUpperCase() + name.slice(1);
+  }
   name = name.replace(/ /g, "_");
   name = name.replace(/^_+|_+$/g, "");
   name = name.replace(/_+/g, "_");
   return name;
+}
+
+function _pad2(n) {
+  return (n < 10 ? "0" : "") + n;
+}
+
+// Replace visually similar Cyrillic characters with Latin equivalents in English text.
+// Only replaces if the text appears to be primarily English (more Latin than Cyrillic chars).
+function disambiguateCyrillic(text) {
+  if (!text) return text;
+  text = String(text);
+  
+  // Count Latin and Cyrillic characters to determine language
+  var latinCount = (text.match(/[a-zA-Z]/g) || []).length;
+  var cyrillicCount = (text.match(/[\u0410-\u044F\u042E\u040E]/g) || []).length;
+  
+  // Only replace if text appears to be English (more Latin than Cyrillic)
+  if (latinCount > cyrillicCount) {
+    text = text
+      .replace(/\u0421/g, "C")
+      .replace(/\u0441/g, "c")
+      .replace(/\u0410/g, "A")
+      .replace(/\u0430/g, "a")
+      .replace(/\u0415/g, "E")
+      .replace(/\u0435/g, "e")
+      .replace(/\u041E/g, "O")
+      .replace(/\u043E/g, "o")
+      .replace(/\u0420/g, "P")
+      .replace(/\u0440/g, "p")
+      .replace(/\u0425/g, "X")
+      .replace(/\u0445/g, "x")
+      .replace(/\u0412/g, "B")
+      .replace(/\u041A/g, "K")
+      .replace(/\u041C/g, "M")
+      .replace(/\u0422/g, "T")
+      .replace(/\u044E/g, "y");
+  }
+  return text;
 }
 
 function getLayerByName(doc, name) {
@@ -116,6 +172,7 @@ function keepOnlyArt(group) {
   for (var i = group.pageItems.length - 1; i >= 0; i--) {
     var child = group.pageItems[i];
     if (child.name === "ART") continue;
+    if (child.clipping) continue;
     if (child.typename === "GroupItem" && child.clipped && !groupHasTemplate(child)) continue;
     child.remove();
   }
@@ -168,16 +225,7 @@ function debugEffectGroups() {
   return "[" + out.join(",") + "]";
 }
 
-// True if the (precomputed) bounds overlap the artboard at all.
-function isInArtboard(b, abRect) {
-  var cx = (b[0] + b[2]) / 2;
-  var cy = (b[1] + b[3]) / 2;
-  return (
-    cx >= abRect[0] && cx <= abRect[2] && cy <= abRect[1] && cy >= abRect[3]
-  );
-}
 
-// True if the bounds are fully inside the artboard (nothing spills out).
 function isFullyInside(b, abRect) {
   return (
     b[0] >= abRect[0] &&
@@ -195,8 +243,28 @@ function copyToLayer(item, destLayer, abRect, scale) {
   var relativeLeft = sourceLeft - abRect[0];
   var relativeTop = abRect[1] - sourceTop;
   var newArtboardHeight = (abRect[1] - abRect[3]) * scale;
+  var copy;
 
-  var copy = item.duplicate(destLayer, ElementPlacement.PLACEATEND);
+  try {
+    copy = item.duplicate(destLayer, ElementPlacement.PLACEATEND);
+  } catch (e) {
+    var parentPath = [];
+    try {
+      var p = item.parent;
+      while (p) {
+        parentPath.push(p.name + "(" + p.typename + ")");
+        p = p.parent;
+      }
+    } catch (ex) {}
+    throw e;
+  }
+
+  // Convert text to outlines before any transforms.
+  // Illustrator can incorrectly scale some large TextFrame objects.
+  // Working with outlines avoids this export bug.
+  if (copy.typename === "TextFrame") {
+    copy = copy.createOutline();
+  }
 
   if (scale != 1) {
     copy.resize(
@@ -224,10 +292,58 @@ function getScaleTo25MP(width, height) {
   return Math.sqrt(TARGET_EXPORT_PIXELS / (width * height));
 }
 
+function computeExportRangeString(indices, abCount) {
+  if (!indices || indices.length === 0) return "unknown";
+  if (indices.length === abCount) return "all";
+  if (indices.length === 1) return _pad2(indices[0] + 1);
+  var minIdx = indices[0];
+  var maxIdx = indices[0];
+  for (var i = 1; i < indices.length; i++) {
+    if (indices[i] < minIdx) minIdx = indices[i];
+    if (indices[i] > maxIdx) maxIdx = indices[i];
+  }
+  return _pad2(minIdx + 1) + "-" + _pad2(maxIdx + 1);
+}
+
 // Rectangle mask (first item) used to clip a layer to the artboard.
 function createClipGroup(parentLayer, width, height, groupName) {
-  var clipGroup = parentLayer.groupItems.add();
-  clipGroup.name = groupName;
+  var clipGroup = null;
+  try {
+    clipGroup = parentLayer.groupItems.add();
+  } catch (e) {
+    var parentPath = [];
+    try {
+      var pp = parentLayer;
+      while (pp) {
+        parentPath.push(pp.name + "(" + pp.typename + ")");
+        pp = pp.parent;
+      }
+    } catch (ex) {}
+    var clipErrMsg =
+      "Cannot create clip group in layer '" +
+      (parentLayer ? parentLayer.name : "(none)") +
+      "' parents=" +
+      parentPath.join(" > ") +
+      " layer.locked=" +
+      (parentLayer ? parentLayer.locked : "n/a") +
+      " layer.hidden=" +
+      (parentLayer ? parentLayer.hidden : "n/a") +
+      " error=" +
+      jsonStringify(e.message);
+    throw new Error(clipErrMsg);
+  }
+  try {
+    clipGroup.name = groupName;
+  } catch (e) {
+    var nameErrMsg =
+      "Cannot name clip group in layer '" +
+      (parentLayer ? parentLayer.name : "(none)") +
+      "': group=" +
+      jsonStringify(clipGroup.name) +
+      " error=" +
+      jsonStringify(e.message);
+    throw new Error(nameErrMsg);
+  }
 
   var mask = clipGroup.pathItems.rectangle(height, 0, width, height);
   mask.name = "ARTBOARD_MASK";
@@ -287,10 +403,96 @@ function copyLayerItems(
     if (items[i].applyGroupEffect) {
       keepOnlyArt(copy);
       gEffectGroups.push(copy);
+    } else if (items[i].isContainer) {
+      function stripTemplatesInContainer(grp) {
+        for (var ci = 0; ci < grp.groupItems.length; ci++) {
+          var child = grp.groupItems[ci];
+          if (child.clipped) continue;
+          if (child.typename !== "GroupItem") continue;
+          var hasArt = false;
+          for (var pi = 0; pi < child.pageItems.length; pi++) {
+            if (child.pageItems[pi].name === "ART") { hasArt = true; break; }
+          }
+          if (hasArt) {
+            keepOnlyArt(child);
+          } else {
+            stripTemplatesInContainer(child);
+          }
+        }
+      }
+      if (copy.typename === "GroupItem") {
+        try { stripTemplatesInContainer(copy); } catch (e) {}
+      }
+      if (items[i].expandEffects) {
+        gEffectGroups.push(copy);
+      }
+    } else if (items[i].expandEffects) {
+      gEffectGroups.push(copy);
     }
 
-    if (lastUnmasked) copy.move(lastUnmasked, ElementPlacement.PLACEAFTER);
-    else copy.move(exportLayer, ElementPlacement.PLACEATEND);
+    if (lastUnmasked) {
+      try {
+        copy.move(lastUnmasked, ElementPlacement.PLACEAFTER);
+      } catch (e) {
+        var moveParentPath = [];
+        try {
+          var mp = copy.parent;
+          while (mp) {
+            moveParentPath.push(mp.name + "(" + mp.typename + ")");
+            mp = mp.parent;
+          }
+        } catch (ex) {}
+        var moveErrMsg =
+          "Cannot move item in document '" +
+          tempDoc.name +
+          "' artboard '" +
+          abName +
+          "': item=" +
+          jsonStringify(copy.name) +
+          " type=" +
+          copy.typename +
+          " parents=" +
+          moveParentPath.join(" > ") +
+          " destLayer=" +
+          (exportLayer ? exportLayer.name : "(none)") +
+          " error=" +
+          jsonStringify(e.message);
+        vfError(moveErrMsg);
+        progressLog("Export failed: " + moveErrMsg);
+        throw e;
+      }
+    } else {
+      try {
+        copy.move(exportLayer, ElementPlacement.PLACEATEND);
+      } catch (e) {
+        var moveParentPath2 = [];
+        try {
+          var mp2 = copy.parent;
+          while (mp2) {
+            moveParentPath2.push(mp2.name + "(" + mp2.typename + ")");
+            mp2 = mp2.parent;
+          }
+        } catch (ex) {}
+        var moveErrMsg2 =
+          "Cannot move item in document '" +
+          tempDoc.name +
+          "' artboard '" +
+          abName +
+          "': item=" +
+          jsonStringify(copy.name) +
+          " type=" +
+          copy.typename +
+          " parents=" +
+          moveParentPath2.join(" > ") +
+          " destLayer=" +
+          (exportLayer ? exportLayer.name : "(none)") +
+          " error=" +
+          jsonStringify(e.message);
+        vfError(moveErrMsg2);
+        progressLog("Export failed: " + moveErrMsg2);
+        throw e;
+      }
+    }
     lastUnmasked = copy;
   }
 
@@ -320,28 +522,119 @@ function copyLayerItems(
     if (items[j].applyGroupEffect) {
       keepOnlyArt(copy2);
       gEffectGroups.push(copy2);
+    } else if (items[j].isContainer) {
+      function stripTemplatesInContainer2(grp) {
+        for (var ci = 0; ci < grp.groupItems.length; ci++) {
+          var child = grp.groupItems[ci];
+          if (child.clipped) continue;
+          if (child.typename !== "GroupItem") continue;
+          var hasArt = false;
+          for (var pi = 0; pi < child.pageItems.length; pi++) {
+            if (child.pageItems[pi].name === "ART") { hasArt = true; break; }
+          }
+          if (hasArt) {
+            keepOnlyArt(child);
+          } else {
+            stripTemplatesInContainer2(child);
+          }
+        }
+      }
+      if (copy2.typename === "GroupItem") {
+        try { stripTemplatesInContainer2(copy2); } catch (e) {}
+      }
+      if (items[j].expandEffects) {
+        gEffectGroups.push(copy2);
+      }
+    } else if (items[j].expandEffects) {
+      gEffectGroups.push(copy2);
     }
-    copy2.move(clipGroup, ElementPlacement.PLACEATEND);
+    try {
+      copy2.move(clipGroup, ElementPlacement.PLACEATEND);
+    } catch (e) {
+      var clipMovePath = [];
+      try {
+        var cmp = clipGroup.parent;
+        while (cmp) {
+          clipMovePath.push(cmp.name + "(" + cmp.typename + ")");
+          cmp = cmp.parent;
+        }
+      } catch (ex) {}
+      var clipMoveMsg =
+        "Cannot move item to clip group in document '" +
+        tempDoc.name +
+        "' artboard '" +
+        abName +
+        "': item=" +
+        jsonStringify(copy2.name) +
+        " type=" +
+        copy2.typename +
+        " clipGroup=" +
+        jsonStringify(clipGroup.name) +
+        " clipGroup.parents=" +
+        clipMovePath.join(" > ") +
+        " error=" +
+        jsonStringify(e.message);
+      vfError(clipMoveMsg);
+      progressLog("Export failed: " + clipMoveMsg);
+      throw e;
+    }
   }
 
   if (clipGroup) {
     // groupItems.add() inserts the new group at the FRONT (top) of the layer,
     // which would put <layer>_CLIP above this layer's own content (and above
     // everything else). Move it to the back so it sits just below this layer's
-    // normal objects and above the next layer's content вЂ” giving the required
+    // normal objects and above the next layer's content — giving the required
     // panel order: <layer>, <layer>_CLIP.
-    clipGroup.move(exportLayer, ElementPlacement.PLACEATEND);
+    try {
+      clipGroup.move(exportLayer, ElementPlacement.PLACEATEND);
+    } catch (e) {
+      var clipParentPath = [];
+      try {
+        var cp = clipGroup.parent;
+        while (cp) {
+          clipParentPath.push(cp.name + "(" + cp.typename + ")");
+          cp = cp.parent;
+        }
+      } catch (ex) {}
+      var clipErrMsg =
+        "Cannot move clip group in document '" +
+        tempDoc.name +
+        "' artboard '" +
+        abName +
+        "': clipGroup=" +
+        jsonStringify(clipGroup.name) +
+        " type=" +
+        clipGroup.typename +
+        " parents=" +
+        clipParentPath.join(" > ") +
+        " exportLayer=" +
+        (exportLayer ? exportLayer.name : "(none)") +
+        " exportLayer.locked=" +
+        (exportLayer ? exportLayer.locked : "n/a") +
+        " exportLayer.hidden=" +
+        (exportLayer ? exportLayer.hidden : "n/a") +
+        " error=" +
+        jsonStringify(e.message);
+      vfError(clipErrMsg);
+      progressLog("Export failed: " + clipErrMsg);
+      throw e;
+    }
     applyClip(clipGroup);
   }
 }
 
 // Returns a JSON array of artboard names (used by the "Export Selected" UI).
+// Format: "01_ArtboardName" (1-based index with zero-padded 2-digit prefix).
 function getArtboardNames() {
   if (app.documents.length === 0) return "[]";
   var doc = app.activeDocument;
   var parts = [];
   for (var a = 0; a < doc.artboards.length; a++) {
-    parts.push('"' + vfEscapeJson(doc.artboards[a].name) + '"');
+    var idx = a + 1;
+    var idxStr = (idx < 10 ? "0" : "") + idx;
+    var name = doc.artboards[a].name || "artboard_" + a;
+    parts.push('"' + vfEscapeJson(idxStr + "_" + name) + '"');
   }
   return "[" + parts.join(",") + "]";
 }
@@ -362,38 +655,221 @@ function selectExportFolder(startPath) {
   return f.fsName;
 }
 
-function exportArtboards(prefix, selectedIndices, folderPath) {
-  VF_ERRORS = [];
-  VF_SUCCESS = "";
+  function validateExportStructure(doc) {
+    var layers = doc.layers;
+    var layerNames = {};
+    for (var li = 0; li < layers.length; li++) {
+      layerNames[layers[li].name] = layers[li];
+    }
 
-  if (app.documents.length === 0) {
-    vfError("No document.");
+    var required = ["BG", "PLACEHOLDERS", "FG"];
+    for (var ri = 0; ri < required.length; ri++) {
+      if (!layerNames[required[ri]]) {
+        return ['Layer "' + required[ri] + '" not found.'];
+      }
+    }
+
+    var plLayer = layerNames["PLACEHOLDERS"];
+    if (plLayer) {
+      if (plLayer.guideLayer) {
+        return [
+          'Layer "PLACEHOLDERS" is a guide layer. It must be a normal layer.'
+        ];
+      }
+      if (plLayer.name === "VF_METADATA") {
+        return ['Layer "PLACEHOLDERS" has unexpected name "VF_METADATA".'];
+      }
+      function selectAndCenter(item) {
+        try {
+          app.activeDocument.selection = null;
+          item.selected = true;
+        } catch (e) {}
+        try {
+          var b = item.visibleBounds || item.geometricBounds;
+          if (b && app.activeDocument.activeView) {
+            app.activeDocument.activeView.bounds = [b[0], b[1], b[2], b[3]];
+          }
+        } catch (e) {}
+      }
+
+      for (var pi = 0; pi < plLayer.pageItems.length; pi++) {
+        var topItem = plLayer.pageItems[pi];
+        if (topItem.parent != plLayer) continue;
+
+        if (topItem.typename !== "GroupItem" && topItem.typename !== "TextFrame") {
+          selectAndCenter(topItem);
+          return [
+            "Invalid PLACEHOLDERS structure.\n\n" +
+              "Object:\n" +
+              "Name: " + topItem.name + "\n" +
+              "Type: " + topItem.typename + "\n\n" +
+              "Reason:\n" +
+              "Top-level item must be either a GroupItem or TextFrame."
+          ];
+        }
+
+        if (topItem.typename === "TextFrame") continue;
+
+        if (topItem.typename === "GroupItem") {
+          var children = [];
+          for (var ci = 0; ci < topItem.pageItems.length; ci++) {
+            if (topItem.pageItems[ci].parent === topItem) {
+              children.push(topItem.pageItems[ci]);
+            }
+          }
+
+          if (children.length !== 2) {
+            var nestedPlaceholders = [];
+            findPlaceholderGroups(topItem, nestedPlaceholders);
+            if (nestedPlaceholders.length === 0) {
+              selectAndCenter(topItem);
+              var pathParts = [];
+              var p = topItem;
+              while (p) {
+                pathParts.unshift(p.name);
+                p = p.parent;
+              }
+              var pathStr = pathParts.join(" / ");
+              var childInfo = "";
+              for (var ci = 0; ci < children.length; ci++) {
+                childInfo += (ci + 1) + ". " + children[ci].typename + " \"" + children[ci].name + "\"\n";
+              }
+              return [
+                "Invalid PLACEHOLDERS structure.\n\n" +
+                  "Object index: " + pi + "\n" +
+                  "Object:\n" +
+                  "Name: " + topItem.name + "\n" +
+                  "Type: GroupItem\n" +
+                  "Parent: " + (topItem.parent ? topItem.parent.name : "(none)") + "\n" +
+                  "Path: " + pathStr + "\n" +
+                  "Is top-level: " + (topItem.parent === plLayer ? "yes" : "no") + "\n\n" +
+                  "Direct children (" + children.length + "):\n" + childInfo +
+                  "Reason:\n" +
+                  "Placeholder group must contain exactly 2 direct children."
+              ];
+            }
+            continue;
+          }
+
+          var templateCount = 0;
+          var templateVisible = false;
+
+          function searchForTemplate(node) {
+            if (isTemplateName(node.name || "")) {
+              templateCount++;
+              if (node.visible) templateVisible = true;
+            }
+            if (node.typename === "GroupItem") {
+              var items = node.pageItems || [];
+              for (var i = 0; i < items.length; i++) {
+                searchForTemplate(items[i]);
+              }
+            }
+          }
+
+          for (var ci = 0; ci < children.length; ci++) {
+            searchForTemplate(children[ci]);
+          }
+
+          if (templateCount !== 1) {
+            selectAndCenter(topItem);
+            return [
+              "Invalid PLACEHOLDERS structure.\n\n" +
+                "Object:\n" +
+                "Name: " + topItem.name + "\n" +
+                "Type: GroupItem\n" +
+                "Parent: " + (topItem.parent ? topItem.parent.name : "(none)") + "\n\n" +
+                "Reason:\n" +
+                "Placeholder group must contain exactly:\n" +
+                "- one hidden template (S/SK/S1/SK1...)"
+            ];
+          }
+
+          if (templateVisible) {
+            selectAndCenter(topItem);
+            return [
+              "Invalid PLACEHOLDERS structure.\n\n" +
+                "Object:\n" +
+                "Name: " + topItem.name + "\n" +
+                "Type: GroupItem\n" +
+                "Parent: " + (topItem.parent ? topItem.parent.name : "(none)") + "\n\n" +
+                "Reason:\n" +
+                "Placeholder group must contain exactly:\n" +
+                "- one hidden template (S/SK/S1/SK1...)"
+            ];
+          }
+        }
+      }
+    }
+
+    var vfMeta = layerNames["VF_METADATA"];
+    if (vfMeta) {
+      for (var vi = 0; vi < vfMeta.pageItems.length; vi++) {
+        var vfItem = vfMeta.pageItems[vi];
+        if (vfItem.typename !== "TextFrame") {
+          return ['Unexpected item in VF_METADATA: name=' + vfItem.name + ' type=' + vfItem.typename];
+        }
+      }
+    }
+
+    return [];
+  }
+
+  function exportArtboards(prefix, selectedIndices, folderPath, csvOnly, includeJpg, csvEnabled) {
+    VF_ERRORS = [];
+    VF_SUCCESS = "";
+    includeJpg = !!includeJpg;
+    csvEnabled = !!csvEnabled;
+
+    if (app.documents.length === 0) {
+      vfError("No document.");
+      return vfResult();
+    }
+
+    if (!prefix || prefix.length === 0) {
+      prefix = prompt("Enter Filename Prefix:");
+      if (prefix === null) {
+        vfError("Export cancelled.");
+        return vfResult();
+      }
+      if (!prefix || prefix.length === 0) prefix = "export";
+    }
+
+    // Use the folder chosen in the panel UI when provided; otherwise fall back
+    // to a folder picker (keeps the old behavior if called without a path).
+    var exportFolder = null;
+    if (folderPath && folderPath.length > 0) {
+      exportFolder = new Folder(folderPath);
+    } else {
+      exportFolder = Folder.selectDialog("Choose export folder");
+    }
+    if (!exportFolder) {
+      vfError("Export cancelled.");
+      return vfResult();
+    }
+
+    // Guarantee the panel always receives a result, even if anything below
+    // throws (e.g. saveAs/exportFile inside the loop). Without this, an
+    // exception would abort the function, the evalScript callback would never
+    // fire, and the export lock would never be released.
+    try {
+      clearProgress();
+      progressLog("Starting export...");
+
+    var srcDoc = app.activeDocument;
+
+  // Validate document structure before export.
+  var structureErrors = validateExportStructure(srcDoc);
+  if (structureErrors.length > 0) {
+    var errMsg = "Document structure invalid: " + structureErrors.join("; ");
+    vfError(errMsg);
+    progressLog("Export failed: invalid document structure");
     return vfResult();
   }
 
-  if (!prefix || prefix.length === 0) {
-    prefix = prompt("Enter Filename Prefix:");
-    if (!prefix || prefix.length === 0) prefix = "export";
-  }
+  progressLog("Structure valid.");
+  vfSuccess("Structure valid.");
 
-  // Use the folder chosen in the panel UI when provided; otherwise fall back
-  // to a folder picker (keeps the old behavior if called without a path).
-  var exportFolder = null;
-  if (folderPath && folderPath.length > 0) {
-    exportFolder = new Folder(folderPath);
-  } else {
-    exportFolder = Folder.selectDialog("Choose export folder");
-  }
-  if (!exportFolder) return vfResult();
-
-  // Guarantee the panel always receives a result, even if anything below
-  // throws (e.g. saveAs/exportFile inside the loop). Without this, an
-  // exception would abort the function, the evalScript callback would never
-  // fire, and the export lock would never be released.
-  try {
-  var srcDoc = app.activeDocument;
-  exportLog("=== exportArtboards START ===");
-  exportLog(_docState("before-export") + " srcDoc.name=" + srcDoc.name + " srcDoc.modified=" + srcDoc.modified);
   var abCount = srcDoc.artboards.length;
   var abNames = [];
   var abRects = [];
@@ -402,6 +878,8 @@ function exportArtboards(prefix, selectedIndices, folderPath) {
     abNames[a] = srcDoc.artboards[a].name;
     abRects[a] = srcDoc.artboards[a].artboardRect;
   }
+
+  progressLog("Scanning " + abCount + " artboard(s)...");
 
   // Resolve source layers and item bounds ONCE. geometricBounds is cheap
   // (no stroke/fill expansion) and is constant across artboards, so caching
@@ -437,7 +915,7 @@ function exportArtboards(prefix, selectedIndices, folderPath) {
     for (var i = 0; i < plLayer.pageItems.length; i++) {
       var item = plLayer.pageItems[i];
 
-      // РўРѕР»СЊРєРѕ РІРµСЂС…РЅРёР№ СѓСЂРѕРІРµРЅСЊ
+      // Только верхний уровень
       if (item.parent != plLayer) continue;
 
       if (item.typename == "GroupItem") {
@@ -453,25 +931,44 @@ function exportArtboards(prefix, selectedIndices, folderPath) {
         if (genCG) {
           contentItem = genCG;
         } else {
-          for (var pi = 0; pi < grp.pageItems.length; pi++) {
-            if (grp.pageItems[pi].name == "ART") {
-              contentItem = grp.pageItems[pi];
-              break;
+          var foundArt = null;
+          function findArtRecursive(container) {
+            for (var i = 0; i < container.pageItems.length; i++) {
+              if (container.pageItems[i].name == "ART") return container.pageItems[i];
             }
+            for (var j = 0; j < (container.groupItems || []).length; j++) {
+              var hit = findArtRecursive(container.groupItems[j]);
+              if (hit) return hit;
+            }
+            return null;
+          }
+          foundArt = findArtRecursive(grp);
+          if (foundArt) {
+            contentItem = foundArt;
           }
         }
 
         if (contentItem) {
-          // Copy the WHOLE group so any appearance effects applied to it (or a
-          // descendant) вЂ” e.g. Distort & Transform -> Roughen вЂ” transfer to the
-          // export. keepOnlyArt() later strips the hidden S/SK template and any
-          // backdrop, leaving the generated ART carrying the group's effects.
+          var nestedPlaceholders = [];
+          findPlaceholderGroups(grp, nestedPlaceholders);
+          var isContainer =
+            nestedPlaceholders.length > 0 &&
+            nestedPlaceholders[0] !== grp;
+          var containerHasEffect = false;
+          if (isContainer) {
+            try {
+              containerHasEffect = groupOrChildHasEffect(grp);
+            } catch (e) {}
+          }
+
           plItems.push({
             item: grp,
             bounds: contentItem.geometricBounds,
             opacity: grpOpacity,
             blendingMode: grpBlend,
-            applyGroupEffect: true,
+            applyGroupEffect: !isContainer,
+            expandEffects: isContainer && containerHasEffect,
+            isContainer: isContainer,
           });
           continue;
         }
@@ -495,114 +992,16 @@ function exportArtboards(prefix, selectedIndices, folderPath) {
     for (var ai = 0; ai < abCount; ai++) indices.push(ai);
   }
 
-  for (var li2 = 0; li2 < indices.length; li2++) {
-    var a = indices[li2];
-    var abRect = abRects[a];
-    var abWidth = abRect[2] - abRect[0];
-    var abHeight = abRect[1] - abRect[3];
-    var scale = getScaleTo25MP(abWidth, abHeight);
-    var exportWidth = abWidth * scale;
-    var exportHeight = abHeight * scale;
+  var rangeStr = computeExportRangeString(indices, abCount);
 
-    var abName = abNames[a] || "artboard_" + a;
-    var safeName = sanitizeFilename(prefix + "_" + abName);
-    if (safeName.length === 0) safeName = "export_" + a;
-
-    // Reset the per-artboard collection of effect groups before this board's
-    // transfers; they are expanded once, after all copies, below.
-    gEffectGroups = [];
-
-    exportLog(_docState("before-documents.add") + " (artboard " + a + ": " + abName + ")");
-    var tempDoc = app.documents.add(
-      DocumentColorSpace.RGB,
-      exportWidth,
-      exportHeight,
-    );
-    exportLog(_docState("after-documents.add") + " tempDoc.name=" + tempDoc.name + " tempDoc.typename=" + tempDoc.typename);
-    tempDoc.artboards[0].artboardRect = [0, exportHeight, exportWidth, 0];
-    var exportLayer = tempDoc.layers[0];
-
-    // РЎРѕР±РёСЂР°РµРј СЌРєСЃРїРѕСЂС‚РЅС‹Р№ СЃР»РѕР№ РІ Р¤РРљРЎРР РћР’РђРќРќРћРњ РїРѕСЂСЏРґРєРµ (СЃРІРµСЂС…Сѓ РІРЅРёР· РїР°РЅРµР»Рё
-    // Layers): FG, FG_CLIP, PLACEHOLDERS, ART_CLIP, BG, BG_CLIP.
-    // РљР°Р¶РґС‹Р№ СЃР»РѕР№ РєРѕРїРёСЂСѓРµС‚СЃСЏ РІ РґРІРµ С‡Р°СЃС‚Рё вЂ” РѕР±С‹С‡РЅС‹Рµ РѕР±СЉРµРєС‚С‹, Р·Р°С‚РµРј clipping
-    // group РґР»СЏ РѕР±СЉРµРєС‚РѕРІ РІРЅРµ Р°СЂС‚Р±РѕСЂРґР° (СЃРј. copyLayerItems). РўР°Рє РєР°Рє РєР°Р¶РґС‹Р№
-    // РІС‹Р·РѕРІ РґРѕР±Р°РІР»СЏРµС‚ РІ "СЃРїРёРЅСѓ" (PLACEATEND), РёС‚РѕРіРѕРІС‹Р№ РїРѕСЂСЏРґРѕРє СЃРѕРІРїР°РґР°РµС‚ СЃ
-    // РЅСѓР¶РЅС‹Рј: FG РІС‹С€Рµ РІСЃРµРіРѕ, BG_CLIP вЂ” СЃР°РјС‹Р№ РЅРёР¶РЅРёР№.
-    var exportOrder = [
-      { layer: fgLayer, items: fgItems, clip: "FG_CLIP" },
-      { layer: plLayer, items: plItems, clip: "ART_CLIP" },
-      { layer: bgLayer, items: bgItems, clip: "BG_CLIP" },
-    ];
-    for (var li = 0; li < exportOrder.length; li++) {
-      var ord = exportOrder[li];
-      if (ord.layer && ord.items.length > 0) {
-        copyLayerItems(
-          ord.items,
-          exportLayer,
-          abRect,
-          scale,
-          exportWidth,
-          exportHeight,
-          ord.clip,
-        );
-      }
-    }
-
-    // All transfers done вЂ” now bake the live appearance effects (e.g. Distort &
-    // Transform -> Roughen) into real geometry via Expand Appearance, once.
-    expandAllEffects();
-
-    // РџРѕРґРіРѕС‚РѕРІРёС‚СЊ РІСЂРµРјРµРЅРЅС‹Р№ РґРѕРєСѓРјРµРЅС‚ Рє СЌРєСЃРїРѕСЂС‚Сѓ.
-    // tempDoc СѓР¶Рµ Р°РєС‚РёРІРµРЅ СЃСЂР°Р·Сѓ РїРѕСЃР»Рµ app.documents.add(), РїРѕСЌС‚РѕРјСѓ Р»РёС€РЅРёР№
-    // activate() (РїРµСЂРµРєР»СЋС‡РµРЅРёРµ РєРѕРЅС‚РµРєСЃС‚Р°) Рё Р»РёС€РЅРёР№ СЃР±СЂРѕСЃ РІС‹РґРµР»РµРЅРёСЏ РїРµСЂРµРґ
-    // selectall СѓР±СЂР°РЅС‹ вЂ” selectall СЃР°Рј РѕС‡РёС‰Р°РµС‚ РІС‹РґРµР»РµРЅРёРµ.
-    exportLog(_docState("before-selectall/outline/contour") + " EXPECTED tempDoc=" + tempDoc.name);
-    app.executeMenuCommand("selectall");
-
-    // РЎРѕР·РґР°С‚СЊ РєСЂРёРІС‹Рµ РёР· С‚РµРєСЃС‚Р°
-    try {
-      app.executeMenuCommand("outline");
-    } catch (e) {}
-
-    // Р•С‰Рµ СЂР°Р· РІС‹РґРµР»РёС‚СЊ РІСЃС‘, РїРѕС‚РѕРјСѓ С‡С‚Рѕ РїРѕСЃР»Рµ outline РІС‹РґРµР»РµРЅРёРµ РјРѕР¶РµС‚ РёР·РјРµРЅРёС‚СЊСЃСЏ
-    app.selection = null;
-    app.executeMenuCommand("selectall");
-
-    // РџСЂРµРѕР±СЂР°Р·РѕРІР°С‚СЊ РѕР±РІРѕРґРєРё РІ РєСЂРёРІС‹Рµ
-    try {
-      app.doScript("contour", "VF");
-    } catch (e) {}
-
-    var saveFile = new File(exportFolder.fsName + "/" + safeName + ".eps");
-    var epsOptions = new EPSSaveOptions();
-    epsOptions.compatibility = Compatibility.ILLUSTRATOR10;
-    epsOptions.embedLinkedFiles = true;
-    epsOptions.embedAllFonts = false;
-    exportLog(_docState("before-saveAs") + " target=" + saveFile.fsName + " target.typename=" + saveFile.constructor.name);
-    tempDoc.saveAs(saveFile, epsOptions);
-    exportLog(_docState("after-saveAs") + " tempDoc.fullName=" + (tempDoc.fullName || "(unsaved)"));
-
-    // JPG preview with the same base name (EPS + JPG pair for Adobe Stock).
-    var previewFile = new File(exportFolder.fsName + "/" + safeName + ".jpg");
-    var jpgOptions = new ExportOptionsJPEG();
-    jpgOptions.artBoardClipping = true;
-    jpgOptions.qualitySetting = 100;
-    jpgOptions.horizontalScale = 100;
-    jpgOptions.verticalScale = 100;
-    exportLog(_docState("before-exportFile") + " target=" + previewFile.fsName);
-    tempDoc.exportFile(previewFile, ExportType.JPEG, jpgOptions);
-    exportLog(_docState("after-exportFile"));
-
-    exportLog(_docState("before-close") + " closing tempDoc=" + tempDoc.name);
-    tempDoc.close(SaveOptions.DONOTSAVECHANGES);
-    exportLog(_docState("after-close"));
+// CSV-only export: skip the EPS/JPG export entirely and just build the
+// Adobe Stock CSV for the chosen artboards.
+// Respect csvEnabled flag - if false, don't export CSV even in csvOnly mode.
+if (csvOnly) {
+  if (!csvEnabled) {
+    vfSuccess("Exported:\n0 EPS\n0 CSV (CSV disabled)");
+    return vfResult();
   }
-
-  exportLog(_docState("before-srcDoc.activate") + " srcDoc.name=" + srcDoc.name);
-  srcDoc.activate();
-  exportLog(_docState("after-srcDoc.activate") + " srcDoc.name=" + srcDoc.name + " srcDoc.modified=" + srcDoc.modified);
-
-  // Build ONE Adobe Stock CSV for the whole export (one row per artboard).
   try {
     buildStockCsv(
       srcDoc,
@@ -612,40 +1011,235 @@ function exportArtboards(prefix, selectedIndices, folderPath) {
       abNames,
       abRects,
       [fgLayer, plLayer, bgLayer],
+      rangeStr,
     );
   } catch (e) {
     vfError("Stock CSV failed: " + e.message);
   }
+  vfSuccess("Exported:\n1 CSV");
+  return vfResult();
+}
 
+    for (var li2 = 0; li2 < indices.length; li2++) {
+      var a = indices[li2];
+      var abRect = abRects[a];
+      var abWidth = abRect[2] - abRect[0];
+      var abHeight = abRect[1] - abRect[3];
+      var scale = getScaleTo25MP(abWidth, abHeight);
+      var exportWidth = abWidth * scale;
+      var exportHeight = abHeight * scale;
+
+      var abName = abNames[a] || "artboard_" + a;
+      var boardIndex = a + 1;
+      var boardIndexStr = boardIndex < 10 ? "0" + boardIndex : "" + boardIndex;
+      var safeName = sanitizeFilename(boardIndexStr + "_" + prefix + "_" + abName);
+      if (safeName.length === 0) safeName = "export_" + a;
+
+      progressLog(
+        "Exporting artboard " + (li2 + 1) + " of " + indices.length + ": " + abName
+      );
+
+      // Reset the per-artboard collection of effect groups before this board's
+      // transfers; they are expanded once, after all copies, below.
+      gEffectGroups = [];
+
+     var tempDoc = app.documents.add(
+       DocumentColorSpace.RGB,
+       exportWidth,
+       exportHeight,
+     );
+      tempDoc.artboards[0].artboardRect = [0, exportHeight, exportWidth, 0];
+       var exportLayer = tempDoc.layers.add();
+       try {
+         exportLayer.name = "VF_EXPORT";
+       } catch (e) {
+         var abIdx = tempDoc.artboards.getActiveArtboardIndex();
+         var abNameNow = abIdx >= 0 ? tempDoc.artboards[abIdx].name : "(unknown)";
+         var errMsg =
+           "Cannot modify export layer in document '" +
+           tempDoc.name +
+           "' artboard '" +
+           abNameNow +
+           "': " +
+           e.message;
+         vfError(errMsg);
+         progressLog("Export failed: " + errMsg);
+         throw e;
+       }
+       try { exportLayer.locked = false; } catch (e) {}
+       try { exportLayer.hidden = false; } catch (e) {}
+
+        try {
+          for (var li = 0; li < tempDoc.layers.length; li++) {
+            var layer = tempDoc.layers[li];
+            if (layer.name === "VF_EXPORT") continue;
+            layer.remove();
+            break;
+          }
+        } catch (e) {
+        }
+
+     // Собираем экспортный слой в ФИКСИРОВАННОМ порядке (сверху вниз панели
+     // Layers): FG, FG_CLIP, PLACEHOLDERS, ART_CLIP, BG, BG_CLIP.
+     // Каждый слой копируется в две части — обычные объекты, затем clipping
+     // group для объектов вне артборда (см. copyLayerItems). Так как каждый
+     // вызов добавляет в "спину" (PLACEATEND), итоговый порядок совпадает с
+     // нужным: FG выше всего, BG_CLIP — самый нижний.
+     var exportOrder = [
+       { layer: fgLayer, items: fgItems, clip: "FG_CLIP" },
+       { layer: plLayer, items: plItems, clip: "ART_CLIP" },
+       { layer: bgLayer, items: bgItems, clip: "BG_CLIP" },
+     ];
+     for (var li = 0; li < exportOrder.length; li++) {
+       var ord = exportOrder[li];
+       if (ord.layer && ord.items.length > 0) {
+         try {
+           copyLayerItems(
+             ord.items,
+             exportLayer,
+             abRect,
+             scale,
+             exportWidth,
+             exportHeight,
+             ord.clip,
+           );
+         } catch (e) {
+           throw e;
+         }
+       }
+     }
+
+     try {
+       expandAllEffects();
+     } catch (e) {
+       throw e;
+     }
+
+     // Подготовить временный документ к экспорту.
+     // tempDoc уже активен сразу после app.documents.add(), поэтому лишний
+     // activate() (переключение контекста) и лишний сброс выделения перед
+     // selectall убраны — selectall сам очищает выделение.
+     app.executeMenuCommand("selectall");
+
+     // Создать кривые из текста
+     try {
+       app.executeMenuCommand("outline");
+     } catch (e) {
+     }
+
+     // Еще раз выделить всё, потому что после outline выделение может измениться
+     app.selection = null;
+     app.executeMenuCommand("selectall");
+
+     // Преобразовать обводки в кривые
+     try {
+       app.doScript("contour", "VF");
+     } catch (e) {
+     }
+
+      var saveFile = new File(exportFolder.fsName + "/" + safeName + ".eps");
+      var epsOptions = new EPSSaveOptions();
+      epsOptions.compatibility = Compatibility.ILLUSTRATOR10;
+      epsOptions.embedLinkedFiles = true;
+      epsOptions.embedAllFonts = false;
+      try {
+        tempDoc.saveAs(saveFile, epsOptions);
+      } catch (e) {
+        var saveErrMsg =
+          "Cannot save document '" +
+          tempDoc.name +
+          "' artboard '" +
+          abName +
+          "': " +
+          e.message;
+        vfError(saveErrMsg);
+        progressLog("Export failed: " + saveErrMsg);
+        throw e;
+      }
+
+      // JPG preview with the same base name (EPS + JPG pair for Adobe Stock).
+      if (includeJpg) {
+        var previewFile = new File(exportFolder.fsName + "/" + safeName + ".jpg");
+        var jpgOptions = new ExportOptionsJPEG();
+        jpgOptions.artBoardClipping = true;
+        jpgOptions.qualitySetting = 100;
+        jpgOptions.horizontalScale = 100;
+        jpgOptions.verticalScale = 100;
+        try {
+          tempDoc.exportFile(previewFile, ExportType.JPEG, jpgOptions);
+        } catch (e) {
+          var exportErrMsg =
+            "Cannot export JPG from document '" +
+            tempDoc.name +
+            "' artboard '" +
+            abName +
+            "': " +
+            e.message;
+          vfError(exportErrMsg);
+          progressLog("Export failed: " + exportErrMsg);
+          throw e;
+        }
+      }
+
+      tempDoc.close(SaveOptions.DONOTSAVECHANGES);
+    }
+
+  srcDoc.activate();
+
+  var csvCount = 0;
+  if (csvEnabled) {
+    progressLog("Writing 3 CSV files...");
+
+    // Build three stock CSV files for the whole export (one row per artboard).
+    try {
+      buildStockCsv(
+        srcDoc,
+        exportFolder,
+        prefix,
+        indices,
+        abNames,
+        abRects,
+        [fgLayer, plLayer, bgLayer],
+        rangeStr,
+      );
+      csvCount = 3;
+    } catch (e) {
+      vfError("Stock CSV failed: " + e.message);
+      progressLog("CSV failed: " + e.message);
+    }
+  }
+
+  // One combined Adobe Stock CSV is written for the whole export batch.
+  progressLog("Export complete");
   vfSuccess(
-    "Export complete: " +
+    "Exported:\n" +
       indices.length +
-      " file(s)" +
-      (indices.length === abCount ? "" : " (of " + abCount + ")") +
-      ". For each artboard an EPS + JPG preview pair was created, scaled to 25 MP.",
+      " " + (includeJpg ? "EPS-JPEG" : "EPS") + "\n" +
+      csvCount +
+      " CSV",
   );
-  exportLog(_docState("after-export-all") + " srcDoc.name=" + srcDoc.name + " srcDoc.modified=" + srcDoc.modified + " srcDoc.fullName=" + (srcDoc.fullName || "(unsaved)"));
-  exportLog("=== exportArtboards END ===");
   } catch (e) {
     // Any unexpected error during export is reported (not thrown), so the
     // panel's evalScript callback always fires and the lock is released.
     vfError("Export failed: " + e.message);
+    var failMsg = "Export failed";
+    if (abName) failMsg += " at " + abName;
+    failMsg += ": " + e.message;
+    progressLog(failMsg);
   } finally {
     // Always return a result string to the panel, even on failure.
     return vfResult();
   }
 }
 
-// Build a single Adobe Stock CSV next to the exported files. One row per
-// exported artboard. Columns: Filename, Title, Keywords, Category, Releases.
-//   - Filename: <prefix>_<artboard>.eps (matches the exported EPS file).
-//   - Title: if the artboard template contains "*", replace it with the
-//     object/Set title; otherwise prepend the object/Set title to the
-//     artboard title. The object/Set title always goes first.
-//   - Keywords: [object/Set keywords] + [artboard keywords], deduped, ", ".
-//   - Category / Releases: left empty (not used by the current export).
-// Before writing, each artboard is validated; any problems are collected and
-// reported in the status line (export is NOT aborted, CSV is still written).
+// Build three stock CSV files next to the exported files. One row per
+// exported artboard in each file.
+//   - Adobe Stock:  Filename, Title, Keywords, Category, Releases
+//   - Shutterstock: Filename, Description, Keywords, Categories,
+//                   Editorial, Mature content, illustration
+//   - iStock/Getty: file name, description, country, title, color, keywords
+// Title and Keywords are computed exactly as before; only the output format
+// and column layout change.
 function buildStockCsv(
   doc,
   exportFolder,
@@ -654,27 +1248,80 @@ function buildStockCsv(
   abNames,
   abRects,
   layers,
+  rangeStr,
 ) {
-  var rows = [];
-  rows.push(
-    csvEscapeCell("Filename") +
-      "," +
-      csvEscapeCell("Title") +
-      "," +
-      csvEscapeCell("Keywords") +
-      "," +
-      csvEscapeCell("Category") +
-      "," +
-      csvEscapeCell("Releases"),
-  );
-
+  var artboardData = [];
   var problems = [];
+
+  // Find all TextFrames on the given artboard whose bounds intersect it.
+  // Returns the non-empty TextFrame with the largest area (width Ч height
+  // from geometricBounds), or null if none found.
+  function findTextAreaOnArtboard(abRect) {
+    var candidates = [];
+    var searchLayers = doc.layers;
+    for (var li = 0; li < searchLayers.length; li++) {
+      var layer = searchLayers[li];
+      if (layer.guideLayer) continue;
+      collectTextFramesInContainer(layer, abRect, candidates);
+    }
+    if (candidates.length === 0) return null;
+
+    var best = null;
+    var bestArea = -1;
+    for (var ci = 0; ci < candidates.length; ci++) {
+      var tf = candidates[ci];
+      try {
+        var b = tf.geometricBounds;
+        var w = b[2] - b[0];
+        var h = b[1] - b[3];
+        var area = w * h;
+        if (area > bestArea) {
+          bestArea = area;
+          best = tf;
+        }
+      } catch (e) {}
+    }
+    return best;
+  }
+
+  function collectTextFramesInContainer(container, abRect, out) {
+    if (!container) return;
+    var items = container.pageItems;
+    if (items) {
+      for (var i = 0; i < items.length; i++) {
+        var item = items[i];
+        if (item.typename === "TextFrame" || item.typename === "AreaText") {
+          try {
+            var b = item.geometricBounds;
+            if (
+              b[2] > abRect[0] &&
+              b[0] < abRect[2] &&
+              b[1] > abRect[3] &&
+              b[3] < abRect[1]
+            ) {
+              var text = String(item.contents || "").replace(/^\s+|\s+$/g, "");
+              if (text.length > 0) {
+                out.push(item);
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    }
+    var groups = container.groupItems;
+    if (groups) {
+      for (var g = 0; g < groups.length; g++) {
+        collectTextFramesInContainer(groups[g], abRect, out);
+      }
+    }
+  }
 
   for (var i = 0; i < indices.length; i++) {
     var a = indices[i];
     var abName = abNames[a] || "artboard_" + a;
     var abMeta = getArtboardMeta(abName) || {};
     var abTitleTpl = abMeta.title || "";
+    var abShortTitleTpl = abMeta.shortTitle || "";
     var abKeywords = abMeta.keywords || [];
 
     // Generated artwork metadata for this artboard.
@@ -700,59 +1347,129 @@ function buildStockCsv(
       for (var oi = 0; oi < layers.length; oi++) {
         collectArtboardVfIds(layers[oi], abRects[a], boardVfids);
       }
-      // ---- TEMP DIAGNOSTICS (export matching) ----
-      // Dump what the artboard actually contains vs every saved Set, so we can
-      // see exactly why "Matching Set not found" fires. Written to
-      // export_debug.log next to the extension. Remove once root-caused.
-      try {
-        exportLog(
-          '[CSV-MATCH] artboard "' +
-            abName +
-            '" boardVfids=' +
-            jsonStringify(boardVfids),
-        );
-        var _allSets = getAllSets();
-        for (var _sid in _allSets) {
-          var _s = _allSets[_sid];
-          exportLog(
-            '[CSV-MATCH]   Set ' +
-              _sid +
-              ' members=' +
-              jsonStringify(_s ? _s.members : null) +
-              ' title=' +
-              jsonStringify(_s ? _s.title : ""),
-          );
-        }
-      } catch (e) {}
-      // ---- END TEMP DIAGNOSTICS ----
       var matches = findSetsWithExactMembers(boardVfids);
+
       if (matches.length === 0) {
-        setFound = false;
-        problems.push('Artboard "' + abName + '": Matching Set not found.');
-      } else {
-        // Pick the MOST SPECIFIC match (largest member count). A board built
-        // from a Set "recipe" usually contains extra generated objects, so
-        // several Sets may be subsets; the largest one is the intended
-        // composition. A tie at the max count is a genuine ambiguity.
-        var best = matches[0];
-        var tie = false;
-        for (var mi = 1; mi < matches.length; mi++) {
-          var cnt = (matches[mi].members || []).length;
-          var bestCnt = (best.members || []).length;
-          if (cnt > bestCnt) {
-            best = matches[mi];
-            tie = false;
-          } else if (cnt === bestCnt) {
-            tie = true;
-          }
-        }
-        if (tie) {
+
+          // ===== Fallback: Set отсутствует =====
           setFound = false;
-          problems.push('Artboard "' + abName + '": Multiple matching Sets found.');
-        } else {
-          primaryTitle = best.title || "";
-          primaryKeywords = best.keywords || [];
-        }
+
+          // Title
+          var names = [];
+          var namesSeen = {};
+
+          for (var ni = 0; ni < objectNames.length; ni++) {
+              var nm = String(objectNames[ni]).replace(/^\s+|\s+$/g, "");
+              if (nm.length && !namesSeen[nm]) {
+                  namesSeen[nm] = true;
+                  names.push(nm);
+              }
+          }
+
+          if (names.length == 1) {
+              primaryTitle = names[0];
+          } else if (names.length == 2) {
+              primaryTitle = names[0] + " and " + names[1];
+          } else if (names.length > 2) {
+              primaryTitle = "";
+              for (var t = 0; t < names.length; t++) {
+                  if (t == 0) {
+                      primaryTitle = names[t];
+                  } else if (t == names.length - 1) {
+                      primaryTitle += " and " + names[t];
+                  } else {
+                      primaryTitle += ", " + names[t];
+                  }
+              }
+          }
+
+          // Keywords
+          var kwSeen = {};
+          primaryKeywords = [];
+
+          for (var ki = 0; ki < objKeywords.length; ki++) {
+              var kw = String(objKeywords[ki]).replace(/^\s+|\s+$/g, "");
+              if (!kw.length) continue;
+              if (kwSeen[kw]) continue;
+
+              kwSeen[kw] = true;
+              primaryKeywords.push(kw);
+
+              if (primaryKeywords.length >= 40) break;
+          }
+
+      } else {
+
+          // Sort matches by member count descending, then pick the first Set
+          // that has both title and keywords filled. If none have metadata,
+          // treat as no match and fall back to individual element metadata.
+          matches.sort(function(a, b) {
+            var ca = (a.members || []).length;
+            var cb = (b.members || []).length;
+            return cb - ca;
+          });
+
+          var chosen = null;
+          for (var mi = 0; mi < matches.length; mi++) {
+            var m = matches[mi];
+            var mTitle = String(m.title || "").replace(/^\s+|\s+$/g, "");
+            var mKw = m.keywords || [];
+            if (mTitle.length > 0 && mKw.length > 0) {
+              chosen = m;
+              break;
+            }
+          }
+
+          if (chosen) {
+            setFound = true;
+            primaryTitle = chosen.title || "";
+            primaryKeywords = chosen.keywords || [];
+          } else {
+            setFound = false;
+            // No usable Set metadata found; fall back to individual element
+            // metadata so the title/keywords are never empty when objects exist.
+            var names = [];
+            var namesSeen = {};
+
+            for (var ni = 0; ni < objectNames.length; ni++) {
+                var nm = String(objectNames[ni]).replace(/^\s+|\s+$/g, "");
+                if (nm.length && !namesSeen[nm]) {
+                    namesSeen[nm] = true;
+                    names.push(nm);
+                }
+            }
+
+            if (names.length == 1) {
+                primaryTitle = names[0];
+            } else if (names.length == 2) {
+                primaryTitle = names[0] + " and " + names[1];
+            } else if (names.length > 2) {
+                primaryTitle = "";
+                for (var t = 0; t < names.length; t++) {
+                    if (t == 0) {
+                        primaryTitle = names[t];
+                    } else if (t == names.length - 1) {
+                        primaryTitle += " and " + names[t];
+                    } else {
+                        primaryTitle += ", " + names[t];
+                    }
+                }
+            }
+
+            var kwSeen = {};
+            primaryKeywords = [];
+
+            for (var ki = 0; ki < objKeywords.length; ki++) {
+                var kw = String(objKeywords[ki]).replace(/^\s+|\s+$/g, "");
+                if (!kw.length) continue;
+                if (kwSeen[kw]) continue;
+
+                kwSeen[kw] = true;
+                primaryKeywords.push(kw);
+
+                if (primaryKeywords.length >= 40) break;
+            }
+          }
       }
     }
 
@@ -772,8 +1489,7 @@ function buildStockCsv(
       }
     } else if (objectNames.length > 1) {
       if (!setFound) {
-        // "Matching Set not found" / "Multiple matching Sets found" already
-        // pushed above when resolving the Set; skip duplicate here.
+        // No Set matched this artboard; skip Set-specific validation.
       } else {
         if (primaryTitle.length === 0) {
           problems.push('Artboard "' + abName + '": Set Title is empty.');
@@ -784,58 +1500,296 @@ function buildStockCsv(
       }
     }
 
+    // ---- Text Area fallback (no object, no set) ----
+    var textAreaText = "";
+    var textAreaFallback = false;
+    if (primaryTitle.length === 0 && objectNames.length === 0) {
+      var textAreaItem = findTextAreaOnArtboard(abRects[a]);
+      if (textAreaItem) {
+        textAreaText = String(textAreaItem.contents || "").replace(/^\s+|\s+$/g, "");
+        if (textAreaText.length > 0) {
+          textAreaFallback = true;
+        }
+      }
+    }
+
     // ---- Title assembly ----
     var title = "";
     if (abTitleTpl.indexOf("*") >= 0) {
       // Template has "*": replace it with the primary title.
-      title = abTitleTpl.replace(/\*/g, primaryTitle);
+      // If no primary title is available, fall back to object names so the
+      // placeholder never disappears without substitution.
+      if (primaryTitle.length > 0) {
+        title = abTitleTpl.replace(/\*/g, primaryTitle);
+      } else if (textAreaFallback) {
+        title = abTitleTpl.replace(/\*/g, textAreaText);
+      } else {
+        title = objectNames.join(", ");
+      }
     } else {
       // No "*": prepend the primary title to the artboard title.
       if (primaryTitle.length > 0) {
         title = primaryTitle + " " + abTitleTpl;
+      } else if (textAreaFallback) {
+        title = textAreaText + " " + abTitleTpl;
       } else {
         title = abTitleTpl;
       }
     }
     if (title.length === 0) title = objectNames.join(", ");
+    if (title.length === 0 && textAreaFallback) title = textAreaText;
+    title = String(title)
+      .replace(/\s+/g, " ")
+      .replace(/^\s+|\s+$/g, "");
 
-    // Keywords: primary (object/Set) first, then artboard. Drop empties,
-    // dedupe preserving first-seen order, join with ", ".
+    // Capitalize sentences: first letter of the string and after . ! ?
+    function capitalizeSentences(s) {
+      if (!s) return s;
+      s = s.charAt(0).toUpperCase() + s.slice(1);
+      return s.replace(/([.!?]\s+)([a-z])/g, function(_, punct, letter) {
+        return punct + letter.toUpperCase();
+      });
+    }
+
+    title = capitalizeSentences(title);
+
+    // ---- Short Title assembly ----
+    // Format matches Title exactly: supports * placeholder, same data sources.
+    // If no shortTitle template exists, fall back to the regular title for backward compatibility.
+    var shortTitle = "";
+    if (abShortTitleTpl.length === 0) {
+      shortTitle = title;
+    } else if (abShortTitleTpl.indexOf("*") >= 0) {
+      if (primaryTitle.length > 0) {
+        shortTitle = abShortTitleTpl.replace(/\*/g, primaryTitle);
+      } else if (textAreaFallback) {
+        shortTitle = abShortTitleTpl.replace(/\*/g, textAreaText);
+      } else {
+        shortTitle = objectNames.join(", ");
+      }
+    } else {
+      if (primaryTitle.length > 0) {
+        shortTitle = primaryTitle + " " + abShortTitleTpl;
+      } else if (textAreaFallback) {
+        shortTitle = textAreaText + " " + abShortTitleTpl;
+      } else {
+        shortTitle = abShortTitleTpl;
+      }
+    }
+    if (shortTitle.length === 0) shortTitle = title;
+    shortTitle = String(shortTitle)
+      .replace(/\s+/g, " ")
+      .replace(/^\s+|\s+$/g, "");
+
+    // Keywords: walk the artboard template in order, substituting the AI
+    // placeholders "*" (next unused primary keyword) and "**" (all remaining
+    // unused primary keywords) with the linked Element/Set keywords. Any
+    // primary keywords not consumed by a placeholder are appended at the end
+    // so none are lost. Drop empties, dedupe preserving first-seen order,
+    // join with ", ".
     var seen = {};
     var kw = [];
-    var allKw = primaryKeywords.concat(abKeywords);
-    for (var k = 0; k < allKw.length; k++) {
-      var t = String(allKw[k]).replace(/^\s+|\s+$/g, "");
-      if (t.length === 0) continue;
+    var pkIdx = 0; // index of the next unused primary keyword
+    var pkLen = primaryKeywords.length;
+    var textAreaStarCount = 0;
+
+    function pushKw(val) {
+      var t = String(val).replace(/^\s+|\s+$/g, "");
+      if (t.length === 0) return;
       if (!seen[t]) {
         seen[t] = true;
         kw.push(t);
       }
     }
 
+    for (var k = 0; k < abKeywords.length; k++) {
+      var ak = String(abKeywords[k]).replace(/^\s+|\s+$/g, "");
+      if (ak === "*") {
+        if (textAreaFallback) {
+          if (textAreaStarCount === 0) {
+            pushKw(textAreaText);
+          } else if (textAreaStarCount === 1) {
+            pushKw("text");
+          } else if (textAreaStarCount === 2) {
+            pushKw("typography");
+          } else {
+            // Further *: fall back to primary keywords as before
+            while (pkIdx < pkLen) {
+              var pk = primaryKeywords[pkIdx++];
+              if (pk !== undefined && String(pk).length > 0) {
+                pushKw(pk);
+                break;
+              }
+            }
+          }
+          textAreaStarCount++;
+        } else {
+          // Insert the next unused primary keyword (if any remain).
+          while (pkIdx < pkLen) {
+            var pk = primaryKeywords[pkIdx++];
+            if (pk !== undefined && String(pk).length > 0) {
+              pushKw(pk);
+              break;
+            }
+          }
+        }
+      } else if (ak === "**") {
+        if (textAreaFallback) {
+          // In text area fallback mode, ** inserts remaining primary keywords
+          // after the special textArea/text/typography substitutions.
+          while (pkIdx < pkLen) {
+            var pk2 = primaryKeywords[pkIdx++];
+            if (pk2 !== undefined && String(pk2).length > 0) {
+              pushKw(pk2);
+            }
+          }
+        } else {
+          // Insert ALL remaining unused primary keywords.
+          while (pkIdx < pkLen) {
+            var pk2 = primaryKeywords[pkIdx++];
+            if (pk2 !== undefined && String(pk2).length > 0) {
+              pushKw(pk2);
+            }
+          }
+        }
+      } else {
+        pushKw(ak);
+      }
+    }
+
     var filename = sanitizeFilename(prefix + "_" + abName) + ".eps";
-    rows.push(
-      csvEscapeCell(filename) +
+    // Disambiguate Cyrillic characters in English text
+    var cleanTitle = disambiguateCyrillic(title);
+    var cleanShortTitle = disambiguateCyrillic(shortTitle);
+    var cleanKeywords = [];
+    for (var ki = 0; ki < kw.length; ki++) {
+      cleanKeywords.push(disambiguateCyrillic(kw[ki]));
+    }
+    artboardData.push({
+      filename: filename,
+      title: cleanTitle,
+      shortTitle: cleanShortTitle,
+      keywords: cleanKeywords.join(", ")
+    });
+  }
+
+  if (artboardData.length === 0) return;
+
+  // ---- Build three CSV files ----
+  var baseName = "0_" + rangeStr + "_" + (sanitizeFilename(prefix) || "export");
+
+  // --- Adobe Stock ---
+  var adobeRows = [];
+  adobeRows.push(
+    csvEscapeCell("Filename") +
+      "," +
+      csvEscapeCell("Title") +
+      "," +
+      csvEscapeCell("Keywords") +
+      "," +
+      csvEscapeCell("Category") +
+      "," +
+      csvEscapeCell("Releases")
+  );
+  for (var ai = 0; ai < artboardData.length; ai++) {
+    var ad = artboardData[ai];
+    adobeRows.push(
+      csvEscapeCell(ad.filename) +
         "," +
-        csvEscapeCell(title) +
+        csvEscapeCell(ad.title) +
         "," +
-        csvEscapeCell(kw.join(", ")) +
+        csvEscapeCell(ad.keywords) +
         "," +
         csvEscapeCell("") +
         "," +
-        csvEscapeCell(""),
+        csvEscapeCell("")
     );
   }
+  // Helper: write CSV text as UTF-8 (ExtendScript adds BOM automatically with UTF-8 encoding).
+  function writeCsv(file, csvText) {
+    file.encoding = "UTF-8";
+    file.open("w");
+    file.write(csvText);
+    file.close();
+  }
 
-  if (rows.length <= 1) return; // only header -> nothing to write
+  var adobeCsv = adobeRows.join("\r\n") + "\r\n";
+  var adobeFile = new File(
+    exportFolder.fsName + "/Adobe_" + baseName + ".csv"
+  );
+  writeCsv(adobeFile, adobeCsv);
 
-  var csv = rows.join("\r\n") + "\r\n";
-  // Save into the SAME folder the user chose for the SVG/EPS/JPG export
-  // (exportFolder). No extra folder picker вЂ” the path is reused as-is.
-  var csvFile = new File(exportFolder.fsName + "/adobe_stock.csv");
-  csvFile.open("w");
-  csvFile.write(csv);
-  csvFile.close();
+  // --- Shutterstock ---
+  var shutterRows = [];
+  shutterRows.push(
+    csvEscapeCell("Filename") +
+      "," +
+      csvEscapeCell("Description") +
+      "," +
+      csvEscapeCell("Keywords") +
+      "," +
+      csvEscapeCell("Categories") +
+      "," +
+      csvEscapeCell("Editorial") +
+      "," +
+      csvEscapeCell("Mature content") +
+      "," +
+      csvEscapeCell("illustration")
+  );
+  for (var si = 0; si < artboardData.length; si++) {
+    var sd = artboardData[si];
+    shutterRows.push(
+      csvEscapeCell(sd.filename) +
+        "," +
+        csvEscapeCell(sd.title) +
+        "," +
+        csvEscapeCell(sd.keywords) +
+        "," +
+        csvEscapeCell("") +
+        "," +
+        csvEscapeCell("No") +
+        "," +
+        csvEscapeCell("No") +
+        "," +
+        csvEscapeCell("yes")
+    );
+  }
+  var shutterCsv = shutterRows.join("\r\n") + "\r\n";
+  var shutterFile = new File(
+    exportFolder.fsName + "/Shutterstock_" + baseName + ".csv"
+  );
+  writeCsv(shutterFile, shutterCsv);
+
+  // --- iStock/Getty ---
+  // iStock CSV format (from official template):
+  // file name,title,description,keywords
+  var istockRows = [];
+  istockRows.push(
+    csvEscapeCell("file name") +
+      "," +
+      csvEscapeCell("title") +
+      "," +
+      csvEscapeCell("description") +
+      "," +
+      csvEscapeCell("keywords")
+  );
+  for (var ii = 0; ii < artboardData.length; ii++) {
+    var id = artboardData[ii];
+    istockRows.push(
+      csvEscapeCell(id.filename) +
+        "," +
+        csvEscapeCell(id.shortTitle || id.title) +
+        "," +
+        csvEscapeCell(id.title) +
+        "," +
+        csvEscapeCell(id.keywords)
+    );
+  }
+  var istockCsv = istockRows.join("\r\n") + "\r\n";
+  var istockFile = new File(
+    exportFolder.fsName + "/iStock_" + baseName + ".csv"
+  );
+  writeCsv(istockFile, istockCsv);
 
   // Report all validation problems at once (export already finished).
   if (problems.length > 0) {
