@@ -4,12 +4,72 @@ $.evalFile(File($.fileName).parent + "/VF_Common.jsx");
 // Target artwork area in pixels (~24 MP). This is the Bounding Box / Artwork
 // size, not the Artboard size. Stays below Shutterstock's 25 MP limit and
 // within Adobe Stock / iStock Getty compatibility.
-var TARGET_EXPORT_PIXELS = 24000000;
+var TARGET_EXPORT_PIXELS = 20000000;
 
 // Placeholder groups copied whole (with their appearance effects) during the
 // current artboard's export. After ALL transfers finish, Expand Appearance is
 // run on each so the live effect is baked into geometry. Reset per artboard.
 var gEffectGroups = [];
+
+// Safe string coercion for ExtendScript: always returns a primitive string,
+// never a String object wrapper. String objects in ExtendScript do not reliably
+// inherit String.prototype methods, so we unwrap by rebuilding char-by-char.
+function asString(v) {
+  if (v === null || v === undefined) return "";
+  var s = v + "";
+  if (typeof s === "object" && s !== null) {
+    var result = "";
+    for (var i = 0; i < s.length; i++) {
+      result += s.charAt(i);
+    }
+    return result;
+  }
+  return s;
+}
+
+// Clean placeholder text for keywords: letters and spaces only, collapse
+// spaces, no method chaining on potentially unsafe values.
+function cleanPlaceholderText(text) {
+  var s = asString(text);
+  if (!s) return "";
+
+  // Replace non-letter/non-space with space, build result char by char.
+  var lettersOnly = "";
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charAt(i);
+    if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c === " ") {
+      lettersOnly += c;
+    } else {
+      lettersOnly += " ";
+    }
+  }
+
+  // Collapse multiple spaces.
+  var collapsed = "";
+  var prevSpace = false;
+  for (var j = 0; j < lettersOnly.length; j++) {
+    if (lettersOnly.charAt(j) === " ") {
+      if (!prevSpace) {
+        collapsed += " ";
+        prevSpace = true;
+      }
+    } else {
+      collapsed += lettersOnly.charAt(j);
+      prevSpace = false;
+    }
+  }
+
+  // Trim left.
+  while (collapsed.length > 0 && collapsed.charAt(0) === " ") {
+    collapsed = collapsed.substring(1);
+  }
+  // Trim right.
+  while (collapsed.length > 0 && collapsed.charAt(collapsed.length - 1) === " ") {
+    collapsed = collapsed.substring(0, collapsed.length - 1);
+  }
+
+  return collapsed;
+}
 
 // ---- Progress reporting ----
 // Writes the latest progress message to a separate file that the CEP panel
@@ -581,13 +641,12 @@ function copyLayerItems(
   }
 
   if (clipGroup) {
-    // groupItems.add() inserts the new group at the FRONT (top) of the layer,
-    // which would put <layer>_CLIP above this layer's own content (and above
-    // everything else). Move it to the back so it sits just below this layer's
-    // normal objects and above the next layer's content — giving the required
-    // panel order: <layer>, <layer>_CLIP.
     try {
-      clipGroup.move(exportLayer, ElementPlacement.PLACEATEND);
+      if (lastUnmasked && lastUnmasked.parent == exportLayer) {
+        clipGroup.move(lastUnmasked, ElementPlacement.PLACEAFTER);
+      } else {
+        clipGroup.move(exportLayer, ElementPlacement.PLACEATEND);
+      }
     } catch (e) {
       var clipParentPath = [];
       try {
@@ -1299,7 +1358,7 @@ function buildStockCsv(
               b[1] > abRect[3] &&
               b[3] < abRect[1]
             ) {
-              var text = String(item.contents || "").replace(/^\s+|\s+$/g, "");
+              var text = asString(item.contents || "").replace(/^\s+|\s+$/g, "");
               if (text.length > 0) {
                 out.push(item);
               }
@@ -1316,18 +1375,85 @@ function buildStockCsv(
     }
   }
 
+  // Pre-scan the source layers once and group items by artboard index.
+  // Replaces 2 × indices.length × layers.length full recursive scans with
+  // one pass + O(items) grouping.
+  var allItems = [];
+  for (var li = 0; li < layers.length; li++) {
+    collectArtboardItems(layers[li], null, allItems);
+  }
+
+  var artboardItemsByIndex = {};
+  for (var ii = 0; ii < allItems.length; ii++) {
+    var item = allItems[ii];
+    try {
+      var ib = item.geometricBounds;
+      for (var abi = 0; abi < abRects.length; abi++) {
+        if (isInArtboard(ib, abRects[abi])) {
+          if (!artboardItemsByIndex[abi]) artboardItemsByIndex[abi] = [];
+          artboardItemsByIndex[abi].push(item);
+          break;
+        }
+      }
+    } catch (e) {}
+  }
+
   for (var i = 0; i < indices.length; i++) {
     var a = indices[i];
     var abName = abNames[a] || "artboard_" + a;
+    var boardIndex = a + 1;
+    var boardIndexStr = boardIndex < 10 ? "0" + boardIndex : "" + boardIndex;
     var abMeta = getArtboardMeta(abName) || {};
     var abTitleTpl = abMeta.title || "";
     var abShortTitleTpl = abMeta.shortTitle || "";
     var abKeywords = abMeta.keywords || [];
 
-    // Generated artwork metadata for this artboard.
-    var collected = collectArtboardMetadata(doc, abRects[a], layers);
-    var objectNames = collected.objectNames;
-    var objKeywords = collected.keywords;
+    // Generated artwork metadata for this artboard (from pre-scanned items).
+    var boardItems = artboardItemsByIndex[a] || [];
+    var namesSeen = {};
+    var kwSeen = {};
+    var objectNames = [];
+    var objKeywords = [];
+    var objectCategory = "";
+    for (var bi = 0; bi < boardItems.length; bi++) {
+      var meta = getElementMeta(boardItems[bi]);
+      if (meta.objectName && !namesSeen[meta.objectName]) {
+        namesSeen[meta.objectName] = true;
+        objectNames.push(meta.objectName);
+        if (!objectCategory && meta.shutterstockCategory) {
+          objectCategory = meta.shutterstockCategory;
+        }
+      }
+      for (var k = 0; k < meta.keywords.length; k++) {
+        if (!kwSeen[meta.keywords[k]]) {
+          kwSeen[meta.keywords[k]] = true;
+          objKeywords.push(meta.keywords[k]);
+        }
+      }
+    }
+
+    // If element metadata exists on this artboard, also grab the first
+    // non-empty text from the PLACEHOLDERS layer (if any) so it can be
+    // added as an extra keyword later.
+    var placeholderText = "";
+    if (objectNames.length > 0) {
+      var plLayer = getLayer(doc, "PLACEHOLDERS");
+      if (plLayer) {
+        for (var pi = 0; pi < plLayer.textFrames.length; pi++) {
+          var ptf = plLayer.textFrames[pi];
+          try {
+            var ptb = ptf.geometricBounds;
+            if (isInArtboard(ptb, abRects[a])) {
+              var pText = asString(ptf.contents || "").replace(/^\s+|\s+$/g, "");
+              if (pText.length > 0) {
+                placeholderText = pText;
+                break;
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    }
 
     var primaryTitle = ""; // object title (1) or Set title (>1)
     var primaryKeywords = []; // object or Set keywords (come first)
@@ -1344,8 +1470,9 @@ function buildStockCsv(
       // that contains only a subset or has extra members not on the board.
       // The VF_ID collection is RECURSIVE so nested groups are included.
       var boardVfids = [];
-      for (var oi = 0; oi < layers.length; oi++) {
-        collectArtboardVfIds(layers[oi], abRects[a], boardVfids);
+      for (var bi2 = 0; bi2 < boardItems.length; bi2++) {
+        var vfid = getVfId(boardItems[bi2]);
+        if (vfid && !arrayContains(boardVfids, vfid)) boardVfids.push(vfid);
       }
       var matches = findSetsWithExactMembers(boardVfids);
 
@@ -1506,7 +1633,8 @@ function buildStockCsv(
     if (primaryTitle.length === 0 && objectNames.length === 0) {
       var textAreaItem = findTextAreaOnArtboard(abRects[a]);
       if (textAreaItem) {
-        textAreaText = String(textAreaItem.contents || "").replace(/^\s+|\s+$/g, "");
+        var rawText = asString(textAreaItem.contents || "").replace(/^\s+|\s+$/g, "");
+        textAreaText = cleanPlaceholderText(rawText);
         if (textAreaText.length > 0) {
           textAreaFallback = true;
         }
@@ -1552,6 +1680,45 @@ function buildStockCsv(
     }
 
     title = capitalizeSentences(title);
+
+    // If element metadata exists and there's placeholder text on this artboard,
+    // append ". <Placeholder> text." to the LONG title only (not short title).
+    // If the title already contains "with text", insert the placeholder word
+    // between them without extra punctuation. If the title already ends with
+    // a period, don't add another one.
+    if (placeholderText && objectNames.length > 0) {
+      var cleanForTitle = cleanPlaceholderText(placeholderText);
+      if (cleanForTitle.length > 0) {
+        var capitalized = cleanForTitle.charAt(0).toUpperCase() + cleanForTitle.slice(1);
+        if (title.length > 0) {
+          var lowerTitle = title.toLowerCase();
+          var withIdx = lowerTitle.indexOf("with text");
+          if (withIdx >= 0) {
+            title =
+              title.substring(0, withIdx + 4) +
+              capitalized +
+              " " +
+              title.substring(withIdx + 4);
+          } else {
+            var andIdx = lowerTitle.indexOf("and text");
+            if (andIdx >= 0) {
+              title =
+                title.substring(0, andIdx + 4) +
+                capitalized +
+                " " +
+                title.substring(andIdx + 4);
+            } else {
+              var endsWithPeriod = title.charAt(title.length - 1) === ".";
+              if (endsWithPeriod) {
+                title = title + " " + capitalized + " text.";
+              } else {
+                title = title + ". " + capitalized + " text.";
+              }
+            }
+          }
+        }
+      }
+    }
 
     // ---- Short Title assembly ----
     // Format matches Title exactly: supports * placeholder, same data sources.
@@ -1657,7 +1824,17 @@ function buildStockCsv(
       }
     }
 
-    var filename = sanitizeFilename(prefix + "_" + abName) + ".eps";
+    // If element metadata exists and there's placeholder text on this artboard,
+    // add the cleaned placeholder text as the first keyword (letters and spaces
+    // only — punctuation/digits/symbols stripped).
+    if (placeholderText && objectNames.length > 0) {
+      var cleanPlaceholder = cleanPlaceholderText(placeholderText);
+      if (cleanPlaceholder.length > 0) {
+        kw.unshift(cleanPlaceholder);
+      }
+    }
+
+    var filename = sanitizeFilename(boardIndexStr + "_" + prefix + "_" + abName) + ".eps";
     // Disambiguate Cyrillic characters in English text
     var cleanTitle = disambiguateCyrillic(title);
     var cleanShortTitle = disambiguateCyrillic(shortTitle);
@@ -1665,11 +1842,16 @@ function buildStockCsv(
     for (var ki = 0; ki < kw.length; ki++) {
       cleanKeywords.push(disambiguateCyrillic(kw[ki]));
     }
+
+    var montageCategory = abMeta.shutterstockCategory || "";
+
     artboardData.push({
       filename: filename,
       title: cleanTitle,
       shortTitle: cleanShortTitle,
-      keywords: cleanKeywords.join(", ")
+      keywords: cleanKeywords.join(", "),
+      objectCategory: objectCategory,
+      montageCategory: montageCategory
     });
   }
 
@@ -1738,6 +1920,10 @@ function buildStockCsv(
   );
   for (var si = 0; si < artboardData.length; si++) {
     var sd = artboardData[si];
+    var categories = [];
+    if (sd.objectCategory) categories.push(sd.objectCategory);
+    if (sd.montageCategory) categories.push(sd.montageCategory);
+    var categoryCell = categories.length > 0 ? categories.join(",") : "";
     shutterRows.push(
       csvEscapeCell(sd.filename) +
         "," +
@@ -1745,7 +1931,7 @@ function buildStockCsv(
         "," +
         csvEscapeCell(sd.keywords) +
         "," +
-        csvEscapeCell("") +
+        csvEscapeCell(categoryCell) +
         "," +
         csvEscapeCell("No") +
         "," +

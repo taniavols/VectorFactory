@@ -344,14 +344,16 @@ hr {
 }
 
 #status {
-  margin-top: 6px;
-  text-align: center;
+  margin-top: 12px;
+  text-align: left;
   font-size: 11px;
   color: #7fd67f;
-  flex: 1;
-  min-height: 30px;
-  overflow-y: auto;
+  min-height: 20px;
+  overflow: hidden;
   word-break: break-word;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 #status.ok {
@@ -371,6 +373,83 @@ hr {
   margin: 4px 0 0;
   padding-left: 16px;
   color: #ff6b6b;
+}
+
+/* Spinner */
+.status-spinner {
+  display: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #7fd67f;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: vf-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+#status.has-error .status-spinner {
+  border-color: #ff6b6b;
+  border-top-color: transparent;
+}
+
+#status.spinning .status-spinner {
+  display: block;
+}
+
+#statusText {
+  display: inline-block;
+}
+
+@keyframes vf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Pulsing dots for long operations */
+.status-dots {
+  display: none;
+  gap: 3px;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
+#status.spinning .status-dots {
+  display: flex;
+}
+
+.status-dots span {
+  width: 4px;
+  height: 4px;
+  background: #7fd67f;
+  border-radius: 50%;
+  animation: vf-dot 1.2s ease-in-out infinite;
+}
+
+.status-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.status-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+#status.has-error .status-dots span {
+  background: #ff6b6b;
+}
+
+@keyframes vf-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
 }
 
 #status .errlist li {

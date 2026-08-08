@@ -90,7 +90,7 @@ function getSelectedArtworkMeta() {
   }
   var item = app.selection[0];
   var vfid = getVfId(item); // VF_ID from the element's note
-  var meta = getElementMeta(item); // { objectName, keywords }
+  var meta = getElementMeta(item); // { objectName, keywords, shutterstockCategory }
   var objectName = meta ? meta.objectName : "";
   var kw = meta ? meta.keywords : [];
   var kwParts = [];
@@ -105,7 +105,9 @@ function getSelectedArtworkMeta() {
     vfEscapeJson(objectName) +
     '","keywords":[' +
     kwParts.join(",") +
-    '],"isBackground":' +
+    '],"shutterstockCategory":"' +
+    vfEscapeJson(meta ? meta.shutterstockCategory : "") +
+    '","isBackground":' +
     (bg ? "true" : "false") +
     "}"
   );
@@ -116,7 +118,7 @@ function getSelectedArtworkMeta() {
 // assigned automatically if the element does not have one yet.
 // NOTE: the panel (js/app.js) calls this as setSelectedArtworkMeta(...);
 // the name must match exactly or the call throws and nothing is saved.
-function setSelectedArtworkMeta(objectName, keywordsJson) {
+function setSelectedArtworkMeta(objectName, keywordsJson, shutterstockCategory) {
   VF_ERRORS = [];
   VF_SUCCESS = "";
   if (app.documents.length === 0) {
@@ -165,7 +167,7 @@ function setSelectedArtworkMeta(objectName, keywordsJson) {
   // note with empty keywords (via setVfId) before this write, and if that
   // earlier write is the one that persists, the keywords are lost.
   // setElementMeta assigns the id itself when missing.
-  setElementMeta(item, objectName, keywords);
+  setElementMeta(item, objectName, keywords, shutterstockCategory);
   vfSuccess("Element metadata saved.");
   return vfResult();
 }
@@ -374,7 +376,8 @@ function deleteSet(setId) {
   }
   try {
     tf.remove();
-    invalidateSetCache(); // a Set was deleted — drop the cached index
+    invalidateSetCache();
+    invalidateAllSetsCache(); // Set deleted — drop the getAllSets cache too
   } finally {
     layer.locked = wasLocked;
     for (var a = 0; a < ancestors.length; a++) {
@@ -433,7 +436,9 @@ function getSetMetaById(setId) {
     kwParts.join(",") +
     '],"members":[' +
     memParts.join(",") +
-    ']}'
+    '],"shutterstockCategory":"' +
+    vfEscapeJson(meta.shutterstockCategory || "") +
+    '"}'
   );
 }
 
@@ -481,18 +486,19 @@ function deleteAllSets() {
       removed++;
     }
   }
-  invalidateSetCache(); // all Sets in that layer were deleted
+  invalidateSetCache();
+  invalidateAllSetsCache(); // metadata layer was cleared — drop cache too
   vfSuccess("Removed " + removed + " metadata layer(s).");
   return vfResult();
 }
 
-// Save a Set's Title and Keywords (member order is fixed at creation).
+// Save a Set's Title, Keywords and Shutterstock Category (member order is fixed at creation).
 // `keywordsJson` may be EITHER a JS array-literal string (e.g. '["a","b"]')
 // OR an actual Array (e.g. ["a","b"]). The panel passes a string today, but
 // if an Array arrives (e.g. via evalJsx string concatenation that embeds a
 // literal), accept it directly instead of calling .replace() on it (which
 // would throw and silently leave keywords empty).
-function setSetMetaById(setId, title, keywordsJson) {
+function setSetMetaById(setId, title, keywordsJson, shutterstockCategory) {
   VF_ERRORS = [];
   VF_SUCCESS = "";
   var existing = getSetMeta(setId);
@@ -522,9 +528,9 @@ function setSetMetaById(setId, title, keywordsJson) {
   } catch (e) {}
   // Merge into the EXISTING record so unchanged fields (including any
   // previously saved keywords) are preserved. setSetMeta() itself loads the
-  // existing note and only overwrites title/keywords, keeping members and
+  // existing note and only overwrites title/keywords/shutterstockCategory, keeping members and
   // timestamps intact.
-  setSetMeta(setId, title, keywords);
+  setSetMeta(setId, title, keywords, shutterstockCategory);
   vfSuccess("Set metadata saved.");
   return vfResult();
 }
@@ -532,7 +538,7 @@ function setSetMetaById(setId, title, keywordsJson) {
 // ---------- ARTBOARD metadata (keyed by artboard NAME) ----------
 
 // Read an artboard's metadata by its current name. Shape:
-//   { "success": true, "name": "...", "title": "...", "shortTitle": "...", "keywords": [...] }
+//   { "success": true, "name": "...", "title": "...", "shortTitle": "...", "keywords": [...], "shutterstockCategory": "..." }
 //   { "success": false, "error": "Artboard not found." }
 function getArtboardMetaByName(name) {
   var meta = getArtboardMeta(name);
@@ -550,13 +556,15 @@ function getArtboardMetaByName(name) {
     vfEscapeJson(meta.shortTitle || "") +
     '","keywords":[' +
     kwParts.join(",") +
-    ']}'
+    '],"shutterstockCategory":"' +
+    vfEscapeJson(meta.shutterstockCategory || "") +
+    '"}'
   );
 }
 
-// Save an artboard's Title, Short Title and Keywords by its current name.
+// Save an artboard's Title, Short Title, Keywords and Shutterstock Category by its current name.
 // `keywordsJson` accepts BOTH a string and an Array (same guard as setSetMetaById).
-function setArtboardMetaByName(name, title, shortTitle, keywordsJson) {
+function setArtboardMetaByName(name, title, shortTitle, keywordsJson, shutterstockCategory) {
   VF_ERRORS = [];
   VF_SUCCESS = "";
   if (!name) {
@@ -583,7 +591,7 @@ function setArtboardMetaByName(name, title, shortTitle, keywordsJson) {
       }
     }
   } catch (e) {}
-  setArtboardMeta(name, title, shortTitle, keywords);
+  setArtboardMeta(name, title, shortTitle, keywords, shutterstockCategory);
   vfSuccess("Artboard metadata saved.");
   return vfResult();
 }
@@ -810,6 +818,7 @@ function deleteAllMetadataRecords() {
       }
     }
     invalidateSetCache();
+    invalidateAllSetsCache(); // Sets cleared — drop cache too
   }
   ensureNotMetadataActiveLayer(doc);
 

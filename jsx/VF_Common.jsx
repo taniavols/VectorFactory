@@ -230,11 +230,15 @@ function generate(mode, allowMirroring) {
   try {
     var placeholderGroups = [];
     findPlaceholderGroups(placeholdersLayer, placeholderGroups);
-    for (var i = 0; i < placeholderGroups.length; i++) {
+    var totalPlaceholders = placeholderGroups.length;
+    for (var i = 0; i < totalPlaceholders; i++) {
+      progressLog(
+        "Filling placeholder " + (i + 1) + " of " + totalPlaceholders + "..."
+      );
       fillPlaceholderGroup(placeholderGroups[i], masterByNumber);
     }
     hideTargets();
-    progressLog("Generation complete");
+    progressLog("Generation complete (" + totalPlaceholders + " placeholder(s))");
     vfSuccess("Generated (" + gGenMode + ")");
   } catch (e) {
     vfError("Error: " + e.message);
@@ -720,43 +724,81 @@ function replacePlaceholderText(container, text) {
 
     var originalFontSize = tf.textRange.characterAttributes.size;
     var originalWidth = tf.geometricBounds[2] - tf.geometricBounds[0];
+    var originalHeight = tf.geometricBounds[1] - tf.geometricBounds[3];
     var oldBounds = tf.geometricBounds;
+    var oldCenterX = (oldBounds[2] + oldBounds[0]) / 2;
     var oldCenterY = (oldBounds[1] + oldBounds[3]) / 2;
 
-    genLog("replacePlaceholderText: [" + i + "] BEFORE contents fontSize=" + originalFontSize + " originalWidth=" + originalWidth + " " + _docState(""));
+    genLog("replacePlaceholderText: [" + i + "] BEFORE contents fontSize=" + originalFontSize + " originalWidth=" + originalWidth + " originalHeight=" + originalHeight + " " + _docState(""));
 
     tf.contents = text;
 
-    var newWidth = tf.geometricBounds[2] - tf.geometricBounds[0];
-    genLog("replacePlaceholderText: [" + i + "] AFTER contents newWidth=" + newWidth);
+    var fitByHeight = tf.name === "text2";
 
-    if (newWidth > 0 && originalWidth > 0) {
-      var scale = originalWidth / newWidth;
-      var newFontSize = originalFontSize * scale;
-      if (newFontSize < 4) newFontSize = 4;
+    if (fitByHeight) {
+      var newHeight = tf.geometricBounds[1] - tf.geometricBounds[3];
+      genLog("replacePlaceholderText: [" + i + "] AFTER contents newHeight=" + newHeight + " (fit by height)");
 
-      tf.textRange.characterAttributes.size = newFontSize;
-      genLog("replacePlaceholderText: [" + i + "] set fontSize=" + newFontSize + " (scale=" + scale + ")");
+      if (newHeight > 0 && originalHeight > 0) {
+        var scaleH = originalHeight / newHeight;
+        var newFontSizeH = originalFontSize * scaleH;
+        if (newFontSizeH < 4) newFontSizeH = 4;
 
-      var adjustedWidth = tf.geometricBounds[2] - tf.geometricBounds[0];
-      var diff = Math.abs(adjustedWidth - originalWidth);
+        tf.textRange.characterAttributes.size = newFontSizeH;
+        genLog("replacePlaceholderText: [" + i + "] set fontSize=" + newFontSizeH + " (scale=" + scaleH + ")");
 
-      if (diff > 1 && adjustedWidth > 0) {
-        var correctionScale = originalWidth / adjustedWidth;
-        var correctedFontSize = newFontSize * correctionScale;
-        if (correctedFontSize < 4) correctedFontSize = 4;
-        tf.textRange.characterAttributes.size = correctedFontSize;
-        genLog("replacePlaceholderText: [" + i + "] CORRECTION fontSize=" + correctedFontSize + " (correctionScale=" + correctionScale + ")");
+        var adjustedHeight = tf.geometricBounds[1] - tf.geometricBounds[3];
+        var diffH = Math.abs(adjustedHeight - originalHeight);
+
+        if (diffH > 1 && adjustedHeight > 0) {
+          var correctionScaleH = originalHeight / adjustedHeight;
+          var correctedFontSizeH = newFontSizeH * correctionScaleH;
+          if (correctedFontSizeH < 4) correctedFontSizeH = 4;
+          tf.textRange.characterAttributes.size = correctedFontSizeH;
+          genLog("replacePlaceholderText: [" + i + "] CORRECTION fontSize=" + correctedFontSizeH + " (correctionScale=" + correctionScaleH + ")");
+        }
+
+        var newBounds = tf.geometricBounds;
+        var newCenterX = (newBounds[2] + newBounds[0]) / 2;
+        var dx = oldCenterX - newCenterX;
+        if (Math.abs(dx) > 0.01) {
+          tf.translate(dx, 0);
+        }
+
+        genLog("replacePlaceholderText: [" + i + "] final fontSize=" + tf.textRange.characterAttributes.size + " dx=" + dx);
       }
+    } else {
+      var newWidth = tf.geometricBounds[2] - tf.geometricBounds[0];
+      genLog("replacePlaceholderText: [" + i + "] AFTER contents newWidth=" + newWidth);
 
-      var newBounds = tf.geometricBounds;
-      var newCenterY = (newBounds[1] + newBounds[3]) / 2;
-      var dy = oldCenterY - newCenterY;
-      if (Math.abs(dy) > 0.01) {
-        tf.translate(0, dy);
+      if (newWidth > 0 && originalWidth > 0) {
+        var scale = originalWidth / newWidth;
+        var newFontSize = originalFontSize * scale;
+        if (newFontSize < 4) newFontSize = 4;
+
+        tf.textRange.characterAttributes.size = newFontSize;
+        genLog("replacePlaceholderText: [" + i + "] set fontSize=" + newFontSize + " (scale=" + scale + ")");
+
+        var adjustedWidth = tf.geometricBounds[2] - tf.geometricBounds[0];
+        var diff = Math.abs(adjustedWidth - originalWidth);
+
+        if (diff > 1 && adjustedWidth > 0) {
+          var correctionScale = originalWidth / adjustedWidth;
+          var correctedFontSize = newFontSize * correctionScale;
+          if (correctedFontSize < 4) correctedFontSize = 4;
+          tf.textRange.characterAttributes.size = correctedFontSize;
+          genLog("replacePlaceholderText: [" + i + "] CORRECTION fontSize=" + correctedFontSize + " (correctionScale=" + correctionScale + ")");
+        }
+
+        var newBounds = tf.geometricBounds;
+        var newCenterY = (newBounds[1] + newBounds[3]) / 2;
+        var dy = oldCenterY - newCenterY;
+        if (Math.abs(dy) > 0.01) {
+          tf.translate(0, dy);
+        }
+
+        genLog("replacePlaceholderText: [" + i + "] final fontSize=" + tf.textRange.characterAttributes.size + " dy=" + dy);
       }
-
-      genLog("replacePlaceholderText: [" + i + "] final fontSize=" + tf.textRange.characterAttributes.size + " dy=" + dy);
     }
   }
   genLog("replacePlaceholderText: END");
@@ -1023,8 +1065,8 @@ function jsonParse(str) {
 // Bump these when the schema changes; the loaders below migrate any
 // older format up to the current one. Never hardcode the version number
 // elsewhere — all newly written metadata uses these constants.
-var ELEMENT_METADATA_VERSION = 1;
-var SET_METADATA_VERSION = 1;
+var ELEMENT_METADATA_VERSION = 2;
+var SET_METADATA_VERSION = 2;
 
 // Coerce an array-ish value into a clean array of non-empty strings.
 function normalizeStringArray(arr) {
@@ -1044,7 +1086,7 @@ function normalizeStringArray(arr) {
 // ---- Element metadata loader (single entry point) ----
 // Parses `note`, detects the metadata version, migrates any older
 // format up to the current schema, and ALWAYS returns the latest
-// object structure: { version, id, objectName, keywords:[...] }.
+// object structure: { version, id, objectName, keywords:[...], shutterstockCategory }.
 // All migration logic lives here — no version checks elsewhere.
 function loadElementMetadata(note) {
   note = note || "";
@@ -1062,7 +1104,8 @@ function loadElementMetadata(note) {
     version: ELEMENT_METADATA_VERSION,
     id: "",
     objectName: "",
-    keywords: []
+    keywords: [],
+    shutterstockCategory: ""
   };
 }
 
@@ -1076,7 +1119,8 @@ function migrateElementMeta(obj) {
     version: ELEMENT_METADATA_VERSION,
     id: obj.id != null ? String(obj.id) : "",
     objectName: obj.objectName != null ? String(obj.objectName) : "",
-    keywords: normalizeStringArray(obj.keywords)
+    keywords: normalizeStringArray(obj.keywords),
+    shutterstockCategory: obj.shutterstockCategory != null ? String(obj.shutterstockCategory) : ""
   };
 }
 
@@ -1099,7 +1143,8 @@ function parseTransitionalElementMeta(note) {
     version: ELEMENT_METADATA_VERSION,
     id: idM ? idM[1] : "",
     objectName: nameM ? nameM[1] : "",
-    keywords: keywords
+    keywords: keywords,
+    shutterstockCategory: ""
   };
 }
 
@@ -1123,7 +1168,8 @@ function parseLegacyElementMeta(note) {
     version: ELEMENT_METADATA_VERSION,
     id: idM ? idM[1] : "",
     objectName: nameM ? nameM[1] : "",
-    keywords: keywords
+    keywords: keywords,
+    shutterstockCategory: ""
   };
 }
 
@@ -1146,7 +1192,8 @@ function loadSetMetadata(note) {
     modifiedAt: "",
     members: [],
     title: "",
-    keywords: []
+    keywords: [],
+    shutterstockCategory: ""
   };
 }
 
@@ -1154,12 +1201,14 @@ function migrateSetMeta(obj) {
   var v = typeof obj.version === "number" ? obj.version : 1;
   // if (v === 1) { obj = upgradeSetV1ToV2(obj); v = 2; }
   return {
+    version: SET_METADATA_VERSION,
     setId: obj.setId != null ? String(obj.setId) : "",
     createdAt: obj.createdAt != null ? String(obj.createdAt) : "",
     modifiedAt: obj.modifiedAt != null ? String(obj.modifiedAt) : "",
     members: normalizeStringArray(obj.members),
     title: obj.title != null ? String(obj.title) : "",
-    keywords: normalizeStringArray(obj.keywords)
+    keywords: normalizeStringArray(obj.keywords),
+    shutterstockCategory: obj.shutterstockCategory != null ? String(obj.shutterstockCategory) : ""
   };
 }
 
@@ -1185,12 +1234,14 @@ function parseTransitionalSetMeta(note) {
     while ((m2 = re2.exec(memM[1])) !== null) members.push(m2[1]);
   }
   return {
+    version: SET_METADATA_VERSION,
     setId: idM ? idM[1] : "",
     createdAt: caM ? caM[1] : "",
     modifiedAt: maM ? maM[1] : "",
     members: members,
     title: titleM ? titleM[1] : "",
-    keywords: keywords
+    keywords: keywords,
+    shutterstockCategory: ""
   };
 }
 
@@ -1223,7 +1274,8 @@ function parseLegacySetMeta(note) {
     modifiedAt: "",
     members: members,
     title: titleM ? titleM[1] : "",
-    keywords: keywords
+    keywords: keywords,
+    shutterstockCategory: ""
   };
 }
 
@@ -1289,21 +1341,25 @@ function ensureVfId(item) {
 function getElementMeta(item) {
   try {
     var meta = loadElementMetadata(item.note || "");
-    return { objectName: meta.objectName, keywords: meta.keywords || [] };
+    return { objectName: meta.objectName, keywords: meta.keywords || [], shutterstockCategory: meta.shutterstockCategory || "" };
   } catch (e) {
-    return { objectName: "", keywords: [] };
+    return { objectName: "", keywords: [], shutterstockCategory: "" };
   }
 }
 
 // Write an element's metadata: load (migrate) the existing record,
 // update the fields, and write back as current-version JSON. `keywords`
 // is an array of strings; a missing id is assigned automatically.
-function setElementMeta(item, objectName, keywords) {
+// `shutterstockCategory` is a single string; pass undefined to preserve existing.
+function setElementMeta(item, objectName, keywords, shutterstockCategory) {
   try {
     var meta = loadElementMetadata(item.note || "");
     meta.version = ELEMENT_METADATA_VERSION;
     meta.objectName = objectName || "";
     meta.keywords = normalizeStringArray(keywords);
+    if (shutterstockCategory !== undefined) {
+      meta.shutterstockCategory = shutterstockCategory || "";
+    }
     if (!meta.id) meta.id = generateVfId();
     item.note = jsonStringify(meta);
     invalidateItemCache();
@@ -1455,16 +1511,18 @@ function createSet(memberItems) {
     modifiedAt: now,
     members: memberIds,
     title: "",
-    keywords: []
+    keywords: [],
+    shutterstockCategory: ""
   };
   var tf = getSetFrame(doc, setId, true);
   tf.note = jsonStringify(obj);
-  invalidateSetCache(); // a Set was created — drop the cached index
+  invalidateSetCache();
+  invalidateAllSetsCache(); // Sets changed — drop the getAllSets cache too
   return setId;
 }
 
 // Read a Set record, or null if none. Returns the latest schema
-// { setId, createdAt, modifiedAt, title, keywords:[], members:[id,...] }
+// { setId, createdAt, modifiedAt, title, keywords:[], members:[id,...], shutterstockCategory }
 // (members in stored order). All version detection/migration is done
 // by loadSetMetadata().
 function getSetMeta(setId) {
@@ -1478,7 +1536,8 @@ function getSetMeta(setId) {
 
 // Save (or update) a Set's Title and Keywords. Member order and the
 // system timestamps are preserved/updated; createdAt is kept.
-function setSetMeta(setId, title, keywords) {
+// `shutterstockCategory` is a single string; pass undefined to preserve existing.
+function setSetMeta(setId, title, keywords, shutterstockCategory) {
   var doc = app.activeDocument;
   var tf = getSetFrame(doc, setId, false);
   if (!tf) return;
@@ -1489,23 +1548,35 @@ function setSetMeta(setId, title, keywords) {
   if (!meta.createdAt) meta.createdAt = metaNow();
   meta.title = title || "";
   meta.keywords = normalizeStringArray(keywords);
+  if (shutterstockCategory !== undefined) {
+    meta.shutterstockCategory = shutterstockCategory || "";
+  }
   if (!meta.members) meta.members = [];
   tf.note = jsonStringify(meta);
-  invalidateSetCache(); // a Set was modified — drop the cached index
+  invalidateSetCache();
+  invalidateAllSetsCache(); // Sets changed — drop the getAllSets cache too
   ensureNotMetadataActiveLayer(app.activeDocument);
 }
 
 // Collect every Set record currently stored, as a map setId -> record.
+// Result is cached for the lifetime of the current document session so
+// repeated calls from buildStockCsv (once per artboard) don't re-scan the
+// VF_METADATA layer every time.
+var _cachedAllSets = null;
 function getAllSets() {
+  if (_cachedAllSets) return _cachedAllSets;
   var doc = app.activeDocument;
   var layer = getMetadataLayer(doc);
   var out = {};
-  for (var i = 0; i < layer.textFrames.length; i++) {
-    var tf = layer.textFrames[i];
-    var m = tf.name.match(/^SET_(.+)$/);
-    if (!m) continue;
-    out[m[1]] = getSetMeta(m[1]);
+  if (layer) {
+    for (var i = 0; i < layer.textFrames.length; i++) {
+      var tf = layer.textFrames[i];
+      var m = tf.name.match(/^SET_(.+)$/);
+      if (!m) continue;
+      out[m[1]] = getSetMeta(m[1]);
+    }
   }
+  _cachedAllSets = out;
   return out;
 }
 
@@ -1545,7 +1616,7 @@ function getSetIndex() {
 // data as a single object in the note (same pattern as Set frames). The
 // artboard NAME is the identifier (no GUID). Renaming an artboard creates a
 // new record; the old one is simply left behind (not migrated).
-var ARTBOARD_METADATA_VERSION = 1;
+var ARTBOARD_METADATA_VERSION = 2;
 
 // One hidden text frame per artboard, named "ARTBOARD_<name>". Reuses the
 // same layer/visibility handling as getSetFrame.
@@ -1591,7 +1662,7 @@ function getArtboardFrame(doc, name, create) {
 }
 
 // Load/migrate an artboard metadata note into the current schema:
-// { version, name, title, shortTitle, keywords:[] }.
+// { version, name, title, shortTitle, keywords:[], shutterstockCategory }.
 function loadArtboardMetadata(note) {
   note = note || "";
   var obj = jsonParse(note);
@@ -1601,14 +1672,16 @@ function loadArtboardMetadata(note) {
       name: obj.name != null ? String(obj.name) : "",
       title: obj.title != null ? String(obj.title) : "",
       shortTitle: obj.shortTitle != null ? String(obj.shortTitle) : "",
-      keywords: normalizeStringArray(obj.keywords)
+      keywords: normalizeStringArray(obj.keywords),
+      shutterstockCategory: obj.shutterstockCategory != null ? String(obj.shutterstockCategory) : ""
     };
   }
   return {
     name: "",
     title: "",
     shortTitle: "",
-    keywords: []
+    keywords: [],
+    shutterstockCategory: ""
   };
 }
 
@@ -1622,9 +1695,10 @@ function getArtboardMeta(name) {
   return meta;
 }
 
-// Save (or update) an artboard's Title, Short Title and Keywords. Only title/shortTitle/keywords are
-// overwritten; the frame is keyed by name.
-function setArtboardMeta(name, title, shortTitle, keywords) {
+// Save (or update) an artboard's Title, Short Title, Keywords and Shutterstock Category.
+// Only title/shortTitle/keywords/shutterstockCategory are overwritten; the frame is keyed by name.
+// `shutterstockCategory` is a single string; pass undefined to preserve existing.
+function setArtboardMeta(name, title, shortTitle, keywords, shutterstockCategory) {
   var doc = app.activeDocument;
   var tf = getArtboardFrame(doc, name, true);
   if (!tf) return;
@@ -1634,6 +1708,9 @@ function setArtboardMeta(name, title, shortTitle, keywords) {
   meta.title = title || "";
   meta.shortTitle = shortTitle || "";
   meta.keywords = normalizeStringArray(keywords);
+  if (shutterstockCategory !== undefined) {
+    meta.shutterstockCategory = shutterstockCategory || "";
+  }
   tf.note = jsonStringify(meta);
   ensureNotMetadataActiveLayer(app.activeDocument);
 }
@@ -1648,7 +1725,7 @@ function collectArtboardItems(container, abRect, out) {
   if (items) {
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
-      if (isInArtboard(item.geometricBounds, abRect)) out.push(item);
+      if (!abRect || isInArtboard(item.geometricBounds, abRect)) out.push(item);
     }
   }
   var groups = container.groupItems;

@@ -143,46 +143,70 @@
   function setStatus(text, isError) {
     var el = document.getElementById("status");
     if (!el) return;
-    el.textContent = text;
+    var textEl = document.getElementById("statusText");
+    if (textEl) {
+      textEl.textContent = text;
+    } else {
+      el.textContent = text;
+    }
     if (isError) el.classList.add("has-error");
     else el.classList.remove("has-error");
+  }
+
+  function setSpinner(show) {
+    var el = document.getElementById("status");
+    if (!el) return;
+    if (show) el.classList.add("spinning");
+    else el.classList.remove("spinning");
   }
 
   // Render a result string (JSON {errors, success} or plain text) into the
   // status area as a list. Errors are shown in red, success in green.
   function showResult(result) {
     var statusEl = document.getElementById("status");
+    var textEl = document.getElementById("statusText");
     if (!result || result === "undefined") {
       statusEl.className = "ok";
-      statusEl.innerHTML = "Done";
+      if (textEl) textEl.textContent = "Done";
+      else statusEl.textContent = "Done";
       return;
     }
 
     var errors = [];
     var success = "";
+    var raw = String(result).trim();
     try {
-      var parsed = JSON.parse(result);
+      var parsed = JSON.parse(raw);
       errors = parsed.errors || [];
       success = parsed.success || "";
     } catch (e) {
       statusEl.className = "ok";
-      statusEl.textContent = result;
+      if (textEl) textEl.textContent = raw;
+      else statusEl.textContent = raw;
       return;
     }
 
-    var html = "";
-    if (success) {
-      html += '<div class="ok">' + escapeHtml(success) + "</div>";
-    }
     if (errors.length > 0) {
-      html += '<ul class="errlist">';
-      for (var i = 0; i < errors.length; i++) {
-        html += "<li>" + escapeHtml(errors[i]) + "</li>";
+      var html =
+        '<ul class="errlist">' +
+        errors.map(function (err) { return "<li>" + escapeHtml(err) + "</li>"; }).join("") +
+        "</ul>";
+      statusEl.className = "has-error";
+      statusEl.innerHTML = '<span class="status-spinner" id="statusSpinner"></span>' + html;
+    } else {
+      statusEl.className = "ok";
+      if (success) {
+        if (textEl) {
+          textEl.innerHTML = escapeHtml(success).replace(/\n/g, "<br>");
+        } else {
+          statusEl.innerHTML = escapeHtml(success).replace(/\n/g, "<br>");
+        }
+      } else if (textEl) {
+        textEl.textContent = raw;
+      } else {
+        statusEl.textContent = raw;
       }
-      html += "</ul>";
     }
-    statusEl.className = errors.length > 0 ? "has-error" : "ok";
-    statusEl.innerHTML = html;
   }
 
   function escapeHtml(s) {
@@ -214,7 +238,7 @@
       kind === "words" ? countWords(input.value) : countKeywords(input.value);
     counter.textContent = String(n);
   }
-  // Refresh all six field counters from the current field values.
+  // Refresh all field counters from the current field values.
   function refreshAllCounters() {
     updateFieldCounter("metaTitle", "metaTitleCount", "words");
     updateFieldCounter("metaShortTitle", "metaShortTitleCount", "words");
@@ -236,6 +260,9 @@
     document
       .getElementById("metaKeywords")
       .addEventListener("input", onMetaFieldEdit);
+    document
+      .getElementById("metaCategory")
+      .addEventListener("change", onMetaFieldEdit);
 
     // Editable artboard name: save on Enter or blur (rename in Illustrator).
     var abNameEl = document.getElementById("metaArtboardName");
@@ -258,6 +285,9 @@
     document
       .getElementById("awKeywords")
       .addEventListener("input", onArtworkFieldEdit);
+    document
+      .getElementById("awCategory")
+      .addEventListener("change", onArtworkFieldEdit);
 
     // ----- Set Metadata wiring -----
     document.getElementById("setObject").onclick = function () {
@@ -312,6 +342,9 @@
     document
       .getElementById("setKeywords")
       .addEventListener("input", onSetFieldEdit);
+    document
+      .getElementById("setCategory")
+      .addEventListener("change", onSetFieldEdit);
 
     // ----- Live field counters (word count for titles, keyword count for keyword fields) -----
     // Update immediately on every keystroke for snappy feedback...
@@ -538,7 +571,7 @@
               fillMetaFields(name);
               return;
             }
-            fillMetaFields(name, st.title || "", st.shortTitle || "", st.keywords || []);
+            fillMetaFields(name, st.title || "", st.shortTitle || "", st.keywords || [], st.shutterstockCategory || "");
           },
         );
       },
@@ -546,11 +579,12 @@
   }
 
   // Show the record for `name` in the template fields.
-  function fillMetaFields(name, title, shortTitle, keywords) {
+  function fillMetaFields(name, title, shortTitle, keywords, shutterstockCategory) {
     var nameEl = document.getElementById("metaArtboardName");
     var titleEl = document.getElementById("metaTitle");
     var shortTitleEl = document.getElementById("metaShortTitle");
     var kwEl = document.getElementById("metaKeywords");
+    var catEl = document.getElementById("metaCategory");
 
     if (!name) {
       nameEl.value = "No artboard (save the document)";
@@ -558,9 +592,11 @@
       titleEl.value = "";
       shortTitleEl.value = "";
       kwEl.value = "";
+      if (catEl) catEl.value = "";
       titleEl.disabled = true;
       shortTitleEl.disabled = true;
       kwEl.disabled = true;
+      if (catEl) catEl.disabled = true;
       return;
     }
     nameEl.value = name;
@@ -568,6 +604,7 @@
     titleEl.disabled = false;
     shortTitleEl.disabled = false;
     kwEl.disabled = false;
+    if (catEl) catEl.disabled = false;
     // Don't reload (and wipe) fields that AI just filled for THIS artboard.
     // Keep the guard if name is empty (no artboard selected yet).
     if (
@@ -582,6 +619,7 @@
       titleEl.value = title || "";
       shortTitleEl.value = shortTitle || "";
       kwEl.value = (keywords || []).join(", ");
+      if (catEl) catEl.value = shutterstockCategory || "";
     }
   }
 
@@ -596,12 +634,13 @@
     }, 400);
   }
 
-  // Persist the current artboard Title / Short Title / Keywords via setArtboardMetaByName().
+  // Persist the current artboard Title / Short Title / Keywords / Category via setArtboardMetaByName().
   function saveMetaNow() {
     if (!metaCurrentName) return;
     var title = document.getElementById("metaTitle").value;
     var shortTitle = document.getElementById("metaShortTitle").value;
     var kwText = document.getElementById("metaKeywords").value;
+    var category = document.getElementById("metaCategory").value || "";
     var kwItems = kwText.split(",");
     var kwParts = [];
     var seen = {};
@@ -623,7 +662,9 @@
         jsxString(shortTitle) +
         '",' +
         kwJson +
-        ")",
+        ',"' +
+        jsxString(category) +
+        '")',
       function (result) {
         if (result) {
           try {
@@ -795,8 +836,10 @@
               "No artwork selected";
             document.getElementById("awName").value = "";
             document.getElementById("awKeywords").value = "";
+            document.getElementById("awCategory").value = "";
             document.getElementById("awName").disabled = true;
             document.getElementById("awKeywords").disabled = true;
+            document.getElementById("awCategory").disabled = true;
             // An empty selection means the user clicked inside the artboard
             // (монтажка) — getSelectionPanelMode() returns "artboard" there,
             // so the Artboard Metadata panel shows. Route through it.
@@ -810,8 +853,10 @@
               "Multiple elements — use Set below";
             document.getElementById("awName").value = "";
             document.getElementById("awKeywords").value = "";
+            document.getElementById("awCategory").value = "";
             document.getElementById("awName").disabled = true;
             document.getElementById("awKeywords").disabled = true;
+            document.getElementById("awCategory").disabled = true;
             applyPanelMode("multiple");
             // Swap Set Object / Delete Object based on whether the selection
             // already forms an existing Set.
@@ -825,8 +870,10 @@
             "New artwork — ID assigned on save";
           document.getElementById("awName").value = "";
           document.getElementById("awKeywords").value = "";
+          document.getElementById("awCategory").value = "";
           document.getElementById("awName").disabled = false;
           document.getElementById("awKeywords").disabled = false;
+          document.getElementById("awCategory").disabled = false;
           applyPanelMode("single");
           return;
         }
@@ -835,6 +882,7 @@
         document.getElementById("awVfid").textContent = "VF_ID: " + st.vfid;
         document.getElementById("awName").disabled = false;
         document.getElementById("awKeywords").disabled = false;
+        document.getElementById("awCategory").disabled = false;
         // Don't reload (and wipe) fields that AI just filled for THIS
         // selection — we don't auto-save, so Illustrator still has the old
         // value. The guard clears itself when the selection changes to a
@@ -853,6 +901,7 @@
           document.getElementById("awKeywords").value = (
             st.keywords || []
           ).join(", ");
+          document.getElementById("awCategory").value = st.shutterstockCategory || "";
         }
         // Warn if the selected item looks like the background (a rectangle
         // filling the artboard) rather than the actual artwork (монтажка).
@@ -957,6 +1006,7 @@
     if (!awHasSelection) return;
     var name = document.getElementById("awName").value;
     var kwText = document.getElementById("awKeywords").value;
+    var category = document.getElementById("awCategory").value || "";
     var kwItems = kwText.split(",");
     var kwParts = [];
     var seen = {};
@@ -970,7 +1020,13 @@
     var kwJson = "[" + kwParts.join(",") + "]";
     evalJsx(
       ["VF_Common.jsx", "VF_ArtworkMeta.jsx"],
-      'setSelectedArtworkMeta("' + jsxString(name) + '",' + kwJson + ")",
+      'setSelectedArtworkMeta("' +
+        jsxString(name) +
+        '",' +
+        kwJson +
+        ',"' +
+        jsxString(category) +
+        '")',
       function (result) {
         if (result) {
           try {
@@ -1060,6 +1116,7 @@
           document.getElementById("setKeywords").value = (
             st.keywords || []
           ).join(", ");
+          document.getElementById("setCategory").value = st.shutterstockCategory || "";
         }
         // Load member display NAMES (titles) instead of raw VF_ID codes.
         // evalJsx(
@@ -1095,11 +1152,12 @@
     }, 400);
   }
 
-  // Persist the current Set Title / Keywords via setSetMetaById().
+  // Persist the current Set Title / Keywords / Category via setSetMetaById().
   function saveSetMetaNow() {
     if (!currentSetId) return;
     var title = document.getElementById("setTitle").value;
     var kwText = document.getElementById("setKeywords").value;
+    var category = document.getElementById("setCategory").value || "";
     var kwItems = kwText.split(",");
     var kwParts = [];
     var seen = {};
@@ -1119,7 +1177,9 @@
         jsxString(title) +
         '",' +
         kwJson +
-        ")",
+        ',"' +
+        jsxString(category) +
+        '")',
       function (result) {
         if (result) {
           try {
@@ -1319,13 +1379,9 @@
     if (hintEl) aiSettings.hint = hintEl.value;
   }
 
-  // Show a message in the AI section status line. isError tints it red.
+  // Show a message in the bottom status line. isError tints it red.
   function aiStatus(text, isError) {
-    var el = document.getElementById("aiStatus");
-    if (!el) return;
-    el.textContent = text;
-    if (isError) el.classList.add("err");
-    else el.classList.remove("err");
+    setStatus(text, isError);
   }
 
   // Append a line to ai_debug.log next to the extension. Uses the CEP
@@ -1859,52 +1915,9 @@
     kwEl.value = (keywords || []).join(", ");
   }
 
-  // Show "Replace existing metadata?" with Replace / Keep existing buttons
-  // inside the AI status area. Replace fills the fields; Keep leaves them.
-  function showAiReplaceConfirm(titleEl, shortTitleEl, kwEl, title, shortTitle, keywords, contextType) {
-    var status = document.getElementById("aiStatus");
-    if (!status) {
-      fillAiFields(titleEl, shortTitleEl, kwEl, title, shortTitle, keywords);
-      return;
-    }
-    status.classList.remove("err");
-    status.textContent = "Replace existing metadata?";
-
-    var row = document.createElement("div");
-    row.className = "row";
-    row.style.marginTop = "4px";
-
-    var replaceBtn = document.createElement("button");
-    replaceBtn.className = "ai-small";
-    replaceBtn.type = "button";
-    replaceBtn.textContent = "Replace";
-    replaceBtn.addEventListener("click", function () {
-      fillAiFields(titleEl, shortTitleEl, kwEl, title, shortTitle, keywords);
-      // Protect the replaced values from the poller (same as direct fill).
-      aiFilledKey = aiFillKeyFor(contextType);
-      aiStatus("AI metadata applied", false);
-    });
-
-    var keepBtn = document.createElement("button");
-    keepBtn.className = "ai-small";
-    keepBtn.type = "button";
-    keepBtn.textContent = "Keep existing";
-    keepBtn.addEventListener("click", function () {
-      aiStatus("Kept existing metadata", false);
-    });
-
-    row.appendChild(replaceBtn);
-    row.appendChild(keepBtn);
-    status.appendChild(row);
-  }
-
-  // Entry point: route the AI result into the right field trio.
-  // Always fill the fields (overwrite) — the user explicitly asked for AI
-  // metadata, so they expect to SEE the result. The poller guard (aiFilledKey)
-  // then prevents the 300ms refresh from wiping the AI text until the
-  // selection actually changes. Does NOT touch #aiStatus — the caller shows
-  // the raw model response there. The result is persisted automatically via
-  // saveAIMetadata() (no separate Save button needed).
+  // Fill the AI result into the current field trio and persist. The old
+  // in-place Replace/Keep confirmation used to live in the removed #aiStatus
+  // area; now we just apply directly.
   function applyAIMetadataToFields(contextType, title, shortTitle, keywords) {
     var ids = aiFieldIds(contextType);
     if (!ids) return;
@@ -1914,9 +1927,7 @@
     if (!titleEl || !kwEl) return;
 
     fillAiFields(titleEl, shortTitleEl, kwEl, title, shortTitle, keywords);
-    aiFilledKey = aiFillKeyFor(contextType); // poller must not wipe this
-
-    // Persist the AI-filled metadata automatically (no Save button).
+    aiFilledKey = aiFillKeyFor(contextType);
     saveAIMetadata();
   }
 
@@ -2064,8 +2075,6 @@
     var genBtn = document.getElementById("aiGenerate");
     if (genBtn) {
       genBtn.addEventListener("click", function () {
-        // Reload settings so any prompt edited in the separate editor
-        // window (ai_settings.json) is picked up for this generation.
         aiSettings = loadAiSettings();
         getAIMetadataContext(function (ctx) {
           if (ctx.type === "none") {
@@ -2073,8 +2082,6 @@
             setStatus("Nothing selected", true);
             return;
           }
-          // Echo the active recognition hint (if any) so the user can SEE
-          // that it was picked up and sent to the model.
           var hintEl = document.getElementById("aiHint");
           var liveHint = hintEl && hintEl.value ? hintEl.value.trim() : "";
           if (liveHint) {
@@ -2082,30 +2089,35 @@
           } else {
             aiStatus("Generating…", false);
           }
+          setStatus("Generating AI metadata…");
+          setSpinner(true);
           exportAIImage(ctx, function (path, err) {
             if (err) {
+              setSpinner(false);
               aiStatus(err, true);
+              setStatus(err, true);
               return;
             }
+            setStatus("AI request sent, waiting for response…");
             requestAIMetadata(path, ctx.type, function (res) {
+              setSpinner(false);
               if (res.error) {
                 aiStatus(res.error, true);
+                setStatus(res.error, true);
                 return;
               }
-// Surface the raw model response so we can see exactly what
-               // came back (title + shortTitle + keywords) — useful while diagnosing why
-               // the fields may look empty.
-               aiStatus(
-                 (liveHint ? "Hint: " + liveHint + "\n" : "") +
-                   "AI: title=" +
-                   JSON.stringify(res.title) +
-                   " shortTitle=" +
-                   JSON.stringify(res.shortTitle) +
-                   " keywords=" +
-                   JSON.stringify(res.keywords),
-                 false,
-               );
-               applyAIMetadataToFields(ctx.type, res.title, res.shortTitle, res.keywords);
+              aiStatus(
+                (liveHint ? "Hint: " + liveHint + "\n" : "") +
+                  "AI: title=" +
+                  JSON.stringify(res.title) +
+                  " shortTitle=" +
+                  JSON.stringify(res.shortTitle) +
+                  " keywords=" +
+                  JSON.stringify(res.keywords),
+                false,
+              );
+              setStatus("AI metadata received");
+              applyAIMetadataToFields(ctx.type, res.title, res.shortTitle, res.keywords);
             });
           });
         });

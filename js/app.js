@@ -42,21 +42,39 @@
   // Progress file for long operations (export/generate). Written by JSX,
   // polled by the panel to show live status updates.
   var PROGRESS_FILE =
-    cs.getSystemPath(SystemPath.EXTENSION) + "/export_progress.txt";
+    cs.getSystemPath(SystemPath.EXTENSION) + "/jsx/export_progress.txt";
   var _progressTimer = null;
+  var _lastValidProgress = "";
 
   function readProgress() {
     try {
       var r = window.cep.fs.readFile(PROGRESS_FILE);
       if (r && r.err === 0 && r.data) {
-        return String(r.data).replace(/\r?\n$/, "");
+        var text = String(r.data).replace(/\r?\n$/, "");
+        if (text && text.trim().length > 0 && /^[\x20-\x7e]*$/.test(text)) {
+          var lower = text.toLowerCase();
+          if (
+            lower === "true" ||
+            lower === "false" ||
+            lower === "null" ||
+            lower === "undefined" ||
+            lower === "{}" ||
+            lower === "[]"
+          ) {
+            return _lastValidProgress;
+          }
+          _lastValidProgress = text;
+          return text;
+        }
       }
     } catch (e) {}
-    return "";
+    return _lastValidProgress;
   }
 
   function startProgressPolling() {
     stopProgressPolling();
+    _lastValidProgress = "";
+    setSpinner(true);
     _progressTimer = setInterval(function () {
       var text = readProgress();
       if (text) {
@@ -66,6 +84,7 @@
   }
 
   function stopProgressPolling() {
+    setSpinner(false);
     if (_progressTimer !== null) {
       clearInterval(_progressTimer);
       _progressTimer = null;
@@ -121,6 +140,7 @@
   // would stay suspended forever.
   function exportWithLock(prefix, indices, folder, csvOnly, includeJpg, enableCsv) {
     setExportLock();
+    try { window.cep.fs.deleteFile(PROGRESS_FILE); } catch (e) {}
     startProgressPolling();
     var call =
       'exportArtboards("' +
@@ -149,7 +169,22 @@
   }
 
   function setStatus(text) {
-    document.getElementById("status").textContent = text;
+    var statusEl = document.getElementById("status");
+    var textEl = document.getElementById("statusText");
+    if (textEl) {
+      textEl.textContent = text;
+    } else {
+      statusEl.textContent = text;
+    }
+  }
+
+  function setSpinner(show) {
+    var statusEl = document.getElementById("status");
+    if (show) {
+      statusEl.classList.add("spinning");
+    } else {
+      statusEl.classList.remove("spinning");
+    }
   }
 
   function setToggle(isShown) {
@@ -161,38 +196,49 @@
   // status area as a list. Errors are shown in red, success in green.
   function showResult(result) {
     var statusEl = document.getElementById("status");
+    var textEl = document.getElementById("statusText");
     if (!result || result === "undefined") {
       statusEl.className = "ok";
-      statusEl.innerHTML = "Done";
+      if (textEl) textEl.textContent = "Done";
+      else statusEl.textContent = "Done";
       return;
     }
 
     var errors = [];
     var success = "";
+    var raw = String(result).trim();
     try {
-      var parsed = JSON.parse(result);
+      var parsed = JSON.parse(raw);
       errors = parsed.errors || [];
       success = parsed.success || "";
     } catch (e) {
-      // Not JSON — just show the raw text.
       statusEl.className = "ok";
-      statusEl.textContent = result;
+      if (textEl) textEl.textContent = raw;
+      else statusEl.textContent = raw;
       return;
     }
 
-    var html = "";
-    if (success) {
-      html += '<div class="ok">' + escapeHtml(success) + "</div>";
-    }
     if (errors.length > 0) {
-      html += '<ul class="errlist">';
-      for (var i = 0; i < errors.length; i++) {
-        html += "<li>" + escapeHtml(errors[i]) + "</li>";
+      var html =
+        '<ul class="errlist">' +
+        errors.map(function (err) { return "<li>" + escapeHtml(err) + "</li>"; }).join("") +
+        "</ul>";
+      statusEl.className = "has-error";
+      statusEl.innerHTML = '<span class="status-spinner" id="statusSpinner"></span>' + html;
+    } else {
+      statusEl.className = "ok";
+      if (success) {
+        if (textEl) {
+          textEl.innerHTML = escapeHtml(success).replace(/\n/g, "<br>");
+        } else {
+          statusEl.innerHTML = escapeHtml(success).replace(/\n/g, "<br>");
+        }
+      } else if (textEl) {
+        textEl.textContent = raw;
+      } else {
+        statusEl.textContent = raw;
       }
-      html += "</ul>";
     }
-    statusEl.className = errors.length > 0 ? "has-error" : "ok";
-    statusEl.innerHTML = html;
   }
 
   function escapeHtml(s) {
@@ -226,6 +272,7 @@
 
     document.getElementById("generate").onclick = function () {
       var allowMirroring = document.getElementById("allowMirroring").checked;
+      try { window.cep.fs.deleteFile(PROGRESS_FILE); } catch (e) {}
       startProgressPolling();
       evalJsx(
         ["VF_Common.jsx"],
@@ -240,6 +287,7 @@
 
     document.getElementById("generateS").onclick = function () {
       var allowMirroring = document.getElementById("allowMirroring").checked;
+      try { window.cep.fs.deleteFile(PROGRESS_FILE); } catch (e) {}
       startProgressPolling();
       evalJsx(
         ["VF_Common.jsx"],
@@ -254,6 +302,7 @@
 
     document.getElementById("generateSK").onclick = function () {
       var allowMirroring = document.getElementById("allowMirroring").checked;
+      try { window.cep.fs.deleteFile(PROGRESS_FILE); } catch (e) {}
       startProgressPolling();
       evalJsx(
         ["VF_Common.jsx"],
@@ -318,8 +367,7 @@
       var prefix = document.getElementById("prefix").value || "";
       var folder = currentExportFolder || "";
       var includeJpg = document.getElementById("includeJpg").checked;
-      var enableCsv = document.getElementById("enableCsv").checked;
-      exportWithLock(prefix, [], folder, true, includeJpg, enableCsv);
+      exportWithLock(prefix, [], folder, true, includeJpg, true);
     };
 
     // Choose export folder: open a folder picker in Illustrator (starting at
