@@ -1860,122 +1860,164 @@ function buildStockCsv(
   // ---- Build three CSV files ----
   var baseName = "0_" + rangeStr + "_" + (sanitizeFilename(prefix) || "export");
 
-  // --- Adobe Stock ---
-  var adobeRows = [];
-  adobeRows.push(
-    csvEscapeCell("Filename") +
-      "," +
-      csvEscapeCell("Title") +
-      "," +
-      csvEscapeCell("Keywords") +
-      "," +
-      csvEscapeCell("Category") +
-      "," +
-      csvEscapeCell("Releases")
-  );
+  function parseCsvLine(line) {
+    var result = [];
+    var current = "";
+    var inQuotes = false;
+    for (var i = 0; i < line.length; i++) {
+      var c = line.charAt(i);
+      if (inQuotes) {
+        if (c === '"') {
+          if (i + 1 < line.length && line.charAt(i + 1) === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          current += c;
+        }
+      } else {
+        if (c === '"') {
+          inQuotes = true;
+        } else if (c === ',') {
+          result.push(current);
+          current = "";
+        } else {
+          current += c;
+        }
+      }
+    }
+    result.push(current);
+    return result;
+  }
+
+  function readCsv(file) {
+    file.encoding = "UTF-8";
+    file.open("r");
+    var content = file.read();
+    file.close();
+    var lines = content.split(/\r?\n/);
+    if (lines.length === 0) return null;
+    var header = parseCsvLine(lines[0]);
+    var rows = [];
+    for (var i = 1; i < lines.length; i++) {
+      var line = lines[i];
+      if (line.length === 0) continue;
+      rows.push(parseCsvLine(line));
+    }
+    return { header: header, rows: rows };
+  }
+
+  function buildCsvText(rows) {
+    var lines = [];
+    for (var i = 0; i < rows.length; i++) {
+      var cells = [];
+      for (var j = 0; j < rows[i].length; j++) {
+        cells.push(csvEscapeCell(rows[i][j]));
+      }
+      lines.push(cells.join(","));
+    }
+    return lines.join("\r\n") + "\r\n";
+  }
+
+  function mergeCsv(existingFile, newRows) {
+    if (!existingFile.exists) {
+      var csvText = buildCsvText(newRows);
+      existingFile.encoding = "UTF-8";
+      existingFile.open("w");
+      existingFile.write(csvText);
+      existingFile.close();
+      return;
+    }
+    var existing = readCsv(existingFile);
+    var header = existing.header;
+    var rows = existing.rows;
+    var newRowMap = {};
+    for (var i = 1; i < newRows.length; i++) {
+      newRowMap[newRows[i][0]] = newRows[i];
+    }
+    var resultData = [];
+    var appendedKeys = {};
+    for (var j = 0; j < rows.length; j++) {
+      var key = rows[j][0];
+      if (newRowMap.hasOwnProperty(key)) {
+        resultData.push(newRowMap[key]);
+        appendedKeys[key] = true;
+      } else {
+        resultData.push(rows[j]);
+      }
+    }
+    for (var k = 1; k < newRows.length; k++) {
+      var newKey = newRows[k][0];
+      if (!appendedKeys[newKey]) {
+        resultData.push(newRows[k]);
+      }
+    }
+    var allRows = [header].concat(resultData);
+    var csvText = buildCsvText(allRows);
+    existingFile.encoding = "UTF-8";
+    existingFile.open("w");
+    existingFile.write(csvText);
+    existingFile.close();
+  }
+
+  var adobeRows = [
+    ["Filename", "Title", "Keywords", "Category", "Releases"]
+  ];
   for (var ai = 0; ai < artboardData.length; ai++) {
     var ad = artboardData[ai];
-    adobeRows.push(
-      csvEscapeCell(ad.filename) +
-        "," +
-        csvEscapeCell(ad.title) +
-        "," +
-        csvEscapeCell(ad.keywords) +
-        "," +
-        csvEscapeCell("") +
-        "," +
-        csvEscapeCell("")
-    );
+    adobeRows.push([ad.filename, ad.title, ad.keywords, "", ""]);
   }
-  // Helper: write CSV text as UTF-8 (ExtendScript adds BOM automatically with UTF-8 encoding).
-  function writeCsv(file, csvText) {
-    file.encoding = "UTF-8";
-    file.open("w");
-    file.write(csvText);
-    file.close();
-  }
-
-  var adobeCsv = adobeRows.join("\r\n") + "\r\n";
   var adobeFile = new File(
-    exportFolder.fsName + "/Adobe_" + baseName + ".csv"
+    exportFolder.fsName + "/AdobeStock.csv"
   );
-  writeCsv(adobeFile, adobeCsv);
+  mergeCsv(adobeFile, adobeRows);
 
   // --- Shutterstock ---
-  var shutterRows = [];
-  shutterRows.push(
-    csvEscapeCell("Filename") +
-      "," +
-      csvEscapeCell("Description") +
-      "," +
-      csvEscapeCell("Keywords") +
-      "," +
-      csvEscapeCell("Categories") +
-      "," +
-      csvEscapeCell("Editorial") +
-      "," +
-      csvEscapeCell("Mature content") +
-      "," +
-      csvEscapeCell("illustration")
-  );
+  var shutterRows = [
+    ["Filename", "Description", "Keywords", "Categories", "Editorial", "Mature content", "illustration"]
+  ];
   for (var si = 0; si < artboardData.length; si++) {
     var sd = artboardData[si];
     var categories = [];
     if (sd.objectCategory) categories.push(sd.objectCategory);
     if (sd.montageCategory) categories.push(sd.montageCategory);
     var categoryCell = categories.length > 0 ? categories.join(",") : "";
-    shutterRows.push(
-      csvEscapeCell(sd.filename) +
-        "," +
-        csvEscapeCell(sd.title) +
-        "," +
-        csvEscapeCell(sd.keywords) +
-        "," +
-        csvEscapeCell(categoryCell) +
-        "," +
-        csvEscapeCell("No") +
-        "," +
-        csvEscapeCell("No") +
-        "," +
-        csvEscapeCell("yes")
-    );
+    shutterRows.push([
+      sd.filename,
+      sd.title,
+      sd.keywords,
+      categoryCell,
+      "No",
+      "No",
+      "yes"
+    ]);
   }
-  var shutterCsv = shutterRows.join("\r\n") + "\r\n";
   var shutterFile = new File(
-    exportFolder.fsName + "/Shutterstock_" + baseName + ".csv"
+    exportFolder.fsName + "/Shutterstock.csv"
   );
-  writeCsv(shutterFile, shutterCsv);
+  mergeCsv(shutterFile, shutterRows);
 
   // --- iStock/Getty ---
   // iStock CSV format (from official template):
   // file name,title,description,keywords
-  var istockRows = [];
-  istockRows.push(
-    csvEscapeCell("file name") +
-      "," +
-      csvEscapeCell("title") +
-      "," +
-      csvEscapeCell("description") +
-      "," +
-      csvEscapeCell("keywords")
-  );
+  var istockRows = [
+    ["file name", "title", "description", "keywords"]
+  ];
   for (var ii = 0; ii < artboardData.length; ii++) {
     var id = artboardData[ii];
-    istockRows.push(
-      csvEscapeCell(id.filename) +
-        "," +
-        csvEscapeCell(id.shortTitle || id.title) +
-        "," +
-        csvEscapeCell(id.title) +
-        "," +
-        csvEscapeCell(id.keywords)
-    );
+    istockRows.push([
+      id.filename,
+      id.shortTitle || id.title,
+      id.title,
+      id.keywords
+    ]);
   }
-  var istockCsv = istockRows.join("\r\n") + "\r\n";
   var istockFile = new File(
-    exportFolder.fsName + "/iStock_" + baseName + ".csv"
+    exportFolder.fsName + "/Istock.csv"
   );
-  writeCsv(istockFile, istockCsv);
+  mergeCsv(istockFile, istockRows);
 
   // Report all validation problems at once (export already finished).
   if (problems.length > 0) {

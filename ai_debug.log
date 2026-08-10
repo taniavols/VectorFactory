@@ -55928,3 +55928,417 @@ Return only JSON.
 [23:04:44] BASE64 length=15168
 [23:04:46] API RAW: {"id":"chatcmpl-EAhZbQ1x7vbhXy7xPEtEMBvo1yVaL","object":"chat.completion","created":1786219483,"model":"gpt-4.1-mini-2025-04-14","choices":[{"index":0,"message":{"role":"assistant","content":"{\n  \"title\": \"umbrella\",\n  \"shortTitle\": \"umbrella\",\n  \"keywords\": [\n    \"umbrella\",\n    \"rain\",\n    \"weather\",\n    \"protection\",\n    \"storm\",\n    \"accessory\",\n    \"spring\",\n    \"rainy season\"\n  ]\n}","refusal":null,"annotations":[]},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":1354,"completion_tokens":63,"total_tokens":1417,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"completion_tokens_details":{"reasoning_tokens":0,"audio_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0}},"service_tier":"default","system_fingerprint":"fp_1407d13508"}
 [23:04:46] PARSED title="umbrella" shortTitle="umbrella" keywords=["umbrella","rain","weather","protection","storm","accessory","spring","rainy season"]
+[23:47:56] REQUEST context=element imagePath=C:/Program Files/Common Files/Adobe/CEP/extensions/VectorFactory/vf_ai_preview.png model=gpt-4.1-mini temp=0.2
+[23:47:56] PROMPT(element): You are an Adobe Stock metadata specialist.
+
+Analyze only the primary object in this image.
+
+Ignore the background, shadows, decorative effects, empty space and any secondary objects.
+
+Focus only on the object that buyers are most likely to search for.
+
+Generate metadata optimized for Adobe Stock, Shutterstock and iStock.
+
+Think like a stock buyer, not an image recognition model.
+
+Your goal is NOT to identify the object as precisely as possible.
+
+Your goal is to maximize the commercial discoverability of this image on stock websites.
+
+Prefer the object name and keywords that buyers are most likely to search for.
+
+TITLE
+
+Create a stock-ready title.
+
+Rules:
+- 1–4 words.
+- Use the most commercially valuable search name.
+- Prefer common buyer search terms over technically precise names.
+- When a broader object name has significantly higher commercial search value than a more specific name, prefer the broader term.
+- Use common everyday English.
+- Avoid technical, scientific or obscure names unless they are the standard searchable name.
+- Use the same capitalization that would naturally appear in a normal English sentence.
+
+Never use:
+image
+illustration
+icon
+clipart
+graphic
+element
+design
+
+Examples:
+
+book instead of notebook
+bag instead of pouch
+box instead of gift box
+cup instead of coffee cup
+flower instead of daisy
+
+KEYWORDS
+
+Build the keyword list using these steps.
+
+STEP 1 – Commercial search intent
+
+Generate the strongest commercially valuable search terms buyers would use to find images containing this object.
+
+Think about what this object commonly represents in stock illustrations, icons and design assets.
+
+Include broader commercial search terms when they are strongly associated with the object.
+
+Prefer concepts buyers search for over overly specific physical descriptions.
+
+Examples:
+
+Object:
+book
+
+Possible keywords:
+book
+education
+learning
+school
+knowledge
+reading
+library
+study
+textbook
+
+Object:
+heart
+
+Possible keywords:
+heart
+love
+romance
+care
+health
+
+Object:
+light bulb
+
+Possible keywords:
+light bulb
+idea
+innovation
+creativity
+solution
+
+Do not invent weak or speculative concepts.
+
+STEP 2 – Holidays, events and commercial themes
+
+If this object is commonly associated with a holiday, season, event or commercial theme, include the strongest related search terms.
+
+Whenever meaningful, include 2–3 highly relevant keywords describing holidays, seasons, celebrations, life events or commercial occasions that this object naturally symbolizes, represents or is commonly used for.
+
+Choose only associations that buyers would naturally search for on stock websites.
+
+Examples:
+
+book
+→ back to school
+→ September 1
+→ education
+
+gift
+→ Christmas
+→ birthday
+→ Valentine's Day
+→ Mother's Day
+
+pumpkin
+→ Halloween
+→ autumn
+→ Thanksgiving
+
+snowflake
+→ Christmas
+→ winter
+→ New Year
+
+heart
+→ Valentine's Day
+→ wedding
+→ romance
+
+cake
+→ birthday
+→ celebration
+→ party
+
+Do not include unrelated, weak or speculative associations.
+
+Skip this step only if no meaningful association exists.
+
+STEP 3 – Object keywords
+
+Generate keywords describing the object itself.
+
+Use the commercially preferred object name.
+
+Include broader categories when they improve discoverability.
+
+Include common usage only when it is strongly associated with the object.
+
+Do not generate unnecessary synonyms.
+
+STEP 4 – Cleanup
+
+Merge all keywords.
+
+Remove duplicates.
+
+Remove near-duplicates.
+
+Remove weak keywords.
+
+Keep only keywords that add meaningful commercial search value.
+
+STEP 5 – Sort
+
+Sort all keywords by commercial search importance.
+
+Rules
+
+- Return 5–10 keywords.
+- Put the strongest buyer search terms first.
+- Use single-word keywords by default.
+- Multi-word keywords are allowed only for established stock search phrases, holidays, events and proper names.
+- Do not include colors.
+- Do not include artistic styles.
+- Do not include rendering techniques.
+- Do not include marketing words.
+- Do not include subjective descriptions.
+- Do not include background-related words.
+- Do not include secondary objects.
+
+Before returning the result verify:
+
+- the title sounds like a real stock search query;
+- the title uses the commercially preferred object name rather than the most technically precise name;
+- the strongest buyer search terms appear first;
+- every keyword adds unique commercial search value;
+- if the object has a strong association with holidays, seasons, events or commercial themes, include 2–3 of the most commercially valuable related search terms;
+- there are no duplicate or near-duplicate keywords.
+
+Return only JSON.
+
+{
+  "title": "",
+  "shortTitle": "",
+  "keywords": []
+}
+[23:47:56] BASE64 length=8988
+[23:47:59] API RAW: {"id":"chatcmpl-EAiFRtjEYQlHH2POTjH0mnxuT5HTE","object":"chat.completion","created":1786222077,"model":"gpt-4.1-mini-2025-04-14","choices":[{"index":0,"message":{"role":"assistant","content":"{\n  \"title\": \"boot\",\n  \"shortTitle\": \"boot\",\n  \"keywords\": [\n    \"boot\",\n    \"footwear\",\n    \"shoe\",\n    \"leather\",\n    \"fashion\",\n    \"clothing\",\n    \"autumn\",\n    \"winter\",\n    \"outdoor\"\n  ]\n}","refusal":null,"annotations":[]},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":1280,"completion_tokens":65,"total_tokens":1345,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"completion_tokens_details":{"reasoning_tokens":0,"audio_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0}},"service_tier":"default","system_fingerprint":"fp_1407d13508"}
+[23:47:59] PARSED title="boot" shortTitle="boot" keywords=["boot","footwear","shoe","leather","fashion","clothing","autumn","winter","outdoor"]
+[23:50:28] REQUEST context=element imagePath=C:/Program Files/Common Files/Adobe/CEP/extensions/VectorFactory/vf_ai_preview.png model=gpt-4.1-mini temp=0.2
+[23:50:28] PROMPT(element): You are an Adobe Stock metadata specialist.
+
+Analyze only the primary object in this image.
+
+Ignore the background, shadows, decorative effects, empty space and any secondary objects.
+
+Focus only on the object that buyers are most likely to search for.
+
+Generate metadata optimized for Adobe Stock, Shutterstock and iStock.
+
+Think like a stock buyer, not an image recognition model.
+
+Your goal is NOT to identify the object as precisely as possible.
+
+Your goal is to maximize the commercial discoverability of this image on stock websites.
+
+Prefer the object name and keywords that buyers are most likely to search for.
+
+TITLE
+
+Create a stock-ready title.
+
+Rules:
+- 1–4 words.
+- Use the most commercially valuable search name.
+- Prefer common buyer search terms over technically precise names.
+- When a broader object name has significantly higher commercial search value than a more specific name, prefer the broader term.
+- Use common everyday English.
+- Avoid technical, scientific or obscure names unless they are the standard searchable name.
+- Use the same capitalization that would naturally appear in a normal English sentence.
+
+Never use:
+image
+illustration
+icon
+clipart
+graphic
+element
+design
+
+Examples:
+
+book instead of notebook
+bag instead of pouch
+box instead of gift box
+cup instead of coffee cup
+flower instead of daisy
+
+KEYWORDS
+
+Build the keyword list using these steps.
+
+STEP 1 – Commercial search intent
+
+Generate the strongest commercially valuable search terms buyers would use to find images containing this object.
+
+Think about what this object commonly represents in stock illustrations, icons and design assets.
+
+Include broader commercial search terms when they are strongly associated with the object.
+
+Prefer concepts buyers search for over overly specific physical descriptions.
+
+Examples:
+
+Object:
+book
+
+Possible keywords:
+book
+education
+learning
+school
+knowledge
+reading
+library
+study
+textbook
+
+Object:
+heart
+
+Possible keywords:
+heart
+love
+romance
+care
+health
+
+Object:
+light bulb
+
+Possible keywords:
+light bulb
+idea
+innovation
+creativity
+solution
+
+Do not invent weak or speculative concepts.
+
+STEP 2 – Holidays, events and commercial themes
+
+If this object is commonly associated with a holiday, season, event or commercial theme, include the strongest related search terms.
+
+Whenever meaningful, include 2–3 highly relevant keywords describing holidays, seasons, celebrations, life events or commercial occasions that this object naturally symbolizes, represents or is commonly used for.
+
+Choose only associations that buyers would naturally search for on stock websites.
+
+Examples:
+
+book
+→ back to school
+→ September 1
+→ education
+
+gift
+→ Christmas
+→ birthday
+→ Valentine's Day
+→ Mother's Day
+
+pumpkin
+→ Halloween
+→ autumn
+→ Thanksgiving
+
+snowflake
+→ Christmas
+→ winter
+→ New Year
+
+heart
+→ Valentine's Day
+→ wedding
+→ romance
+
+cake
+→ birthday
+→ celebration
+→ party
+
+Do not include unrelated, weak or speculative associations.
+
+Skip this step only if no meaningful association exists.
+
+STEP 3 – Object keywords
+
+Generate keywords describing the object itself.
+
+Use the commercially preferred object name.
+
+Include broader categories when they improve discoverability.
+
+Include common usage only when it is strongly associated with the object.
+
+Do not generate unnecessary synonyms.
+
+STEP 4 – Cleanup
+
+Merge all keywords.
+
+Remove duplicates.
+
+Remove near-duplicates.
+
+Remove weak keywords.
+
+Keep only keywords that add meaningful commercial search value.
+
+STEP 5 – Sort
+
+Sort all keywords by commercial search importance.
+
+Rules
+
+- Return 5–10 keywords.
+- Put the strongest buyer search terms first.
+- Use single-word keywords by default.
+- Multi-word keywords are allowed only for established stock search phrases, holidays, events and proper names.
+- Do not include colors.
+- Do not include artistic styles.
+- Do not include rendering techniques.
+- Do not include marketing words.
+- Do not include subjective descriptions.
+- Do not include background-related words.
+- Do not include secondary objects.
+
+Before returning the result verify:
+
+- the title sounds like a real stock search query;
+- the title uses the commercially preferred object name rather than the most technically precise name;
+- the strongest buyer search terms appear first;
+- every keyword adds unique commercial search value;
+- if the object has a strong association with holidays, seasons, events or commercial themes, include 2–3 of the most commercially valuable related search terms;
+- there are no duplicate or near-duplicate keywords.
+
+Return only JSON.
+
+{
+  "title": "",
+  "shortTitle": "",
+  "keywords": []
+}
+[23:50:28] BASE64 length=25884
+[23:50:30] API RAW: {"id":"chatcmpl-EAiHrgEiwLK7PTmgCoeRtI6w2DEhT","object":"chat.completion","created":1786222227,"model":"gpt-4.1-mini-2025-04-14","choices":[{"index":0,"message":{"role":"assistant","content":"{\n  \"title\": \"sweater\",\n  \"shortTitle\": \"sweater\",\n  \"keywords\": [\n    \"sweater\",\n    \"clothing\",\n    \"winter\",\n    \"cold\",\n    \"fashion\",\n    \"warm\",\n    \"knitwear\",\n    \"holiday\",\n    \"Christmas\"\n  ]\n}","refusal":null,"annotations":[]},"logprobs":null,"finish_reason":"stop"}],"usage":{"prompt_tokens":1380,"completion_tokens":69,"total_tokens":1449,"prompt_tokens_details":{"cached_tokens":0,"audio_tokens":0},"completion_tokens_details":{"reasoning_tokens":0,"audio_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0}},"service_tier":"default","system_fingerprint":"fp_1407d13508"}
+[23:50:30] PARSED title="sweater" shortTitle="sweater" keywords=["sweater","clothing","winter","cold","fashion","warm","knitwear","holiday","Christmas"]

@@ -465,8 +465,7 @@
       var prefix = document.getElementById("prefix").value || "";
       var folder = currentExportFolder || "";
       var includeJpg = document.getElementById("includeJpg").checked;
-      var enableCsv = document.getElementById("enableCsv").checked;
-      exportWithLock(prefix, indices, folder, true, includeJpg, enableCsv);
+      exportWithLock(prefix, indices, folder, true, includeJpg, true);
     };
 
     // --- Remap Placeholders ---

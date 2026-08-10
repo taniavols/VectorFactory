@@ -17,6 +17,9 @@
   var awStatusTimer = null;
   var awSaveTimer = null;
 
+  // ----- Metadata Copy/Paste buffer -----
+  var metadataClipboard = null;
+
   // ----- Set Metadata state -----
   var currentSetId = "";
   var setSaveTimer = null;
@@ -213,6 +216,29 @@
     return String(s).replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">");
   }
 
+  // Convert a keywords array to a JSX-compatible JSON array string,
+  // matching the existing save logic (deduplicate, skip empty, skip "*").
+  function buildKeywordsJson(keywords) {
+    var kwParts = [];
+    var seen = {};
+    for (var i = 0; i < keywords.length; i++) {
+      var t = String(keywords[i]).replace(/^\s+|\s+$/g, "");
+      if (t.length === 0) continue;
+      if (t !== "*" && seen[t]) continue;
+      seen[t] = true;
+      kwParts.push('"' + jsxString(t) + '"');
+    }
+    return "[" + kwParts.join(",") + "]";
+  }
+
+  // Enable/disable Paste buttons based on clipboard state.
+  function updatePasteButtons() {
+    var pasteAb = document.getElementById("pasteMetaArtboard");
+    var pasteAw = document.getElementById("pasteMetaArtwork");
+    if (pasteAb) pasteAb.disabled = !metadataClipboard;
+    if (pasteAw) pasteAw.disabled = !metadataClipboard;
+  }
+
   // ===== Live field counters (word count for titles, keyword count for keyword fields) =====
   // Words = whitespace-separated non-empty tokens.
   function countWords(text) {
@@ -277,6 +303,12 @@
         renameArtboard();
       });
     }
+
+    // ----- Metadata Copy/Paste wiring -----
+    document.getElementById("copyMetaArtboard").onclick = copyArtboardMeta;
+    document.getElementById("pasteMetaArtboard").onclick = pasteArtboardMeta;
+    document.getElementById("copyMetaArtwork").onclick = copyArtworkMeta;
+    document.getElementById("pasteMetaArtwork").onclick = pasteArtworkMeta;
 
     // ----- Artwork (Element) Metadata field wiring -----
     document
@@ -718,6 +750,142 @@
         metaCurrentName = newName;
         refreshMeta();
       },
+    );
+  }
+
+  // ===== Metadata Copy / Paste =====
+
+  function copyArtboardMeta() {
+    if (!metaCurrentName) {
+      setStatus("No artboard selected.");
+      return;
+    }
+    var title = document.getElementById("metaTitle").value;
+    var shortTitle = document.getElementById("metaShortTitle").value;
+    var kwText = document.getElementById("metaKeywords").value;
+    var category = document.getElementById("metaCategory").value || "";
+    var keywords = [];
+    var kwItems = kwText.split(",");
+    for (var i = 0; i < kwItems.length; i++) {
+      var t = kwItems[i].replace(/^\s+|\s+$/g, "");
+      if (t.length > 0) keywords.push(t);
+    }
+    metadataClipboard = {
+      type: "artboard",
+      data: {
+        title: title,
+        shortTitle: shortTitle,
+        keywords: keywords,
+        shutterstockCategory: category
+      }
+    };
+    updatePasteButtons();
+    setStatus("Artboard metadata copied.");
+  }
+
+  function pasteArtboardMeta() {
+    if (!metadataClipboard) {
+      setStatus("No metadata copied.");
+      return;
+    }
+    if (metadataClipboard.type !== "artboard") {
+      setStatus("Cannot paste Object metadata into Montage.");
+      return;
+    }
+    if (!metaCurrentName) {
+      setStatus("No artboard selected.");
+      return;
+    }
+    var d = metadataClipboard.data;
+    var kwJson = buildKeywordsJson(d.keywords);
+    evalJsx(
+      ["VF_Common.jsx", "VF_ArtworkMeta.jsx"],
+      'setArtboardMetaByName("' +
+        jsxString(metaCurrentName) +
+        '","' +
+        jsxString(d.title) +
+        '","' +
+        jsxString(d.shortTitle) +
+        '",' +
+        kwJson +
+        ',"' +
+        jsxString(d.shutterstockCategory) +
+        '")',
+      function (result) {
+        if (result) {
+          try {
+            var p = JSON.parse(result);
+            if (p.errors && p.errors.length > 0) showResult(result);
+          } catch (e) {}
+        }
+        if (aiFilledKey.indexOf("ab:") === 0) aiFilledKey = "";
+        refreshMeta();
+        setStatus("Artboard metadata pasted.");
+      }
+    );
+  }
+
+  function copyArtworkMeta() {
+    if (!awHasSelection) {
+      setStatus("Select one object first.");
+      return;
+    }
+    var name = document.getElementById("awName").value;
+    var kwText = document.getElementById("awKeywords").value;
+    var category = document.getElementById("awCategory").value || "";
+    var keywords = [];
+    var kwItems = kwText.split(",");
+    for (var i = 0; i < kwItems.length; i++) {
+      var t = kwItems[i].replace(/^\s+|\s+$/g, "");
+      if (t.length > 0) keywords.push(t);
+    }
+    metadataClipboard = {
+      type: "object",
+      data: {
+        objectName: name,
+        keywords: keywords,
+        shutterstockCategory: category
+      }
+    };
+    updatePasteButtons();
+    setStatus("Object metadata copied.");
+  }
+
+  function pasteArtworkMeta() {
+    if (!metadataClipboard) {
+      setStatus("No metadata copied.");
+      return;
+    }
+    if (metadataClipboard.type !== "object") {
+      setStatus("Cannot paste Montage metadata into Object.");
+      return;
+    }
+    if (!awHasSelection) {
+      setStatus("Select one object first.");
+      return;
+    }
+    var d = metadataClipboard.data;
+    var kwJson = buildKeywordsJson(d.keywords);
+    evalJsx(
+      ["VF_Common.jsx", "VF_ArtworkMeta.jsx"],
+      'setSelectedArtworkMeta("' +
+        jsxString(d.objectName) +
+        '",' +
+        kwJson +
+        ',"' +
+        jsxString(d.shutterstockCategory) +
+        '")',
+      function (result) {
+        if (result) {
+          try {
+            var p = JSON.parse(result);
+            if (p.errors && p.errors.length > 0) showResult(result);
+          } catch (e) {}
+        }
+        if (aiFilledKey.indexOf("el:") === 0) aiFilledKey = "";
+        refreshArtworkMeta();
+        setStatus("Object metadata pasted.");
+      }
     );
   }
 
