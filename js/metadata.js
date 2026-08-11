@@ -285,7 +285,9 @@
       .addEventListener("input", onMetaFieldEdit);
     document
       .getElementById("metaKeywords")
-      .addEventListener("input", onMetaFieldEdit);
+      .addEventListener("blur", function () {
+        if (metaCurrentName) saveMetaNow();
+      });
     document
       .getElementById("metaCategory")
       .addEventListener("change", onMetaFieldEdit);
@@ -316,7 +318,9 @@
       .addEventListener("input", onArtworkFieldEdit);
     document
       .getElementById("awKeywords")
-      .addEventListener("input", onArtworkFieldEdit);
+      .addEventListener("blur", function () {
+        if (awHasSelection) saveArtworkMetaNow();
+      });
     document
       .getElementById("awCategory")
       .addEventListener("change", onArtworkFieldEdit);
@@ -373,7 +377,9 @@
       .addEventListener("input", onSetFieldEdit);
     document
       .getElementById("setKeywords")
-      .addEventListener("input", onSetFieldEdit);
+      .addEventListener("blur", function () {
+        if (currentSetId) saveSetMetaNow();
+      });
     document
       .getElementById("setCategory")
       .addEventListener("change", onSetFieldEdit);
@@ -650,7 +656,8 @@
     if (!aiSkipAb) {
       titleEl.value = title || "";
       shortTitleEl.value = shortTitle || "";
-      kwEl.value = (keywords || []).join(", ");
+      if (kwEl && document.activeElement !== kwEl)
+        kwEl.value = (keywords || []).join(", ");
       if (catEl) catEl.value = shutterstockCategory || "";
     }
   }
@@ -1065,11 +1072,15 @@
         }
         var aiSkipEl = aiFilledKey === "el:" + st.vfid;
         if (!aiSkipEl) {
-          document.getElementById("awName").value = st.objectName || "";
-          document.getElementById("awKeywords").value = (
-            st.keywords || []
-          ).join(", ");
-          document.getElementById("awCategory").value = st.shutterstockCategory || "";
+          var awNameEl = document.getElementById("awName");
+          var awKwEl = document.getElementById("awKeywords");
+          var awCatEl = document.getElementById("awCategory");
+          if (awNameEl && document.activeElement !== awNameEl)
+            awNameEl.value = st.objectName || "";
+          if (awKwEl && document.activeElement !== awKwEl)
+            awKwEl.value = (st.keywords || []).join(", ");
+          if (awCatEl && document.activeElement !== awCatEl)
+            awCatEl.value = st.shutterstockCategory || "";
         }
         // Warn if the selected item looks like the background (a rectangle
         // filling the artboard) rather than the actual artwork (монтажка).
@@ -1280,11 +1291,15 @@
         }
         var aiSkipSet = aiFilledKey === "set:" + currentSetId;
         if (!aiSkipSet) {
-          document.getElementById("setTitle").value = st.title || "";
-          document.getElementById("setKeywords").value = (
-            st.keywords || []
-          ).join(", ");
-          document.getElementById("setCategory").value = st.shutterstockCategory || "";
+          var setTitleEl = document.getElementById("setTitle");
+          var setKwEl = document.getElementById("setKeywords");
+          var setCatEl = document.getElementById("setCategory");
+          if (setTitleEl && document.activeElement !== setTitleEl)
+            setTitleEl.value = st.title || "";
+          if (setKwEl && document.activeElement !== setKwEl)
+            setKwEl.value = (st.keywords || []).join(", ");
+          if (setCatEl && document.activeElement !== setCatEl)
+            setCatEl.value = st.shutterstockCategory || "";
         }
         // Load member display NAMES (titles) instead of raw VF_ID codes.
         // evalJsx(

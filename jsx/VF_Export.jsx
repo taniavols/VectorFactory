@@ -428,10 +428,10 @@ function applyClip(clipGroup) {
 //   1) fully-inside objects placed directly, preserving their internal order;
 //   2) a dedicated clipping group (clipName) for objects that spill beyond the
 //      artboard, also preserving their internal order.
-// The clip group is appended AFTER the normal objects, so in the Layers panel
-// it sits just below this layer's content. Callers add layers in the desired
-// top-to-bottom order; each call appends to the back (PLACEATEND), so the
-// final stacking is exactly: FG, FG_CLIP, PLACEHOLDERS, ART_CLIP, BG, BG_CLIP.
+// The clip group is normally appended AFTER the normal objects, so in the
+// Layers panel it sits just below this layer's content. When `clipAtTop` is
+// true, the clip group is placed BEFORE the normal objects so it becomes
+// the topmost item of this layer's content.
 function copyLayerItems(
   items,
   exportLayer,
@@ -440,11 +440,13 @@ function copyLayerItems(
   exportWidth,
   exportHeight,
   clipName,
+  clipAtTop,
 ) {
   if (items.length === 0) return;
 
   // Pass 1: fully-inside items, placed directly (internal order preserved).
   var lastUnmasked = null;
+  var firstUnmasked = null;
   for (var i = 0; i < items.length; i++) {
     var b = items[i].bounds;
     if (!isInArtboard(b, abRect)) continue;
@@ -553,6 +555,7 @@ function copyLayerItems(
         throw e;
       }
     }
+    if (!firstUnmasked) firstUnmasked = copy;
     lastUnmasked = copy;
   }
 
@@ -642,7 +645,9 @@ function copyLayerItems(
 
   if (clipGroup) {
     try {
-      if (lastUnmasked && lastUnmasked.parent == exportLayer) {
+      if (clipAtTop && firstUnmasked) {
+        clipGroup.move(firstUnmasked, ElementPlacement.PLACEBEFORE);
+      } else if (lastUnmasked && lastUnmasked.parent == exportLayer) {
         clipGroup.move(lastUnmasked, ElementPlacement.PLACEAFTER);
       } else {
         clipGroup.move(exportLayer, ElementPlacement.PLACEATEND);
@@ -1138,35 +1143,36 @@ if (csvOnly) {
         } catch (e) {
         }
 
-     // Собираем экспортный слой в ФИКСИРОВАННОМ порядке (сверху вниз панели
-     // Layers): FG, FG_CLIP, PLACEHOLDERS, ART_CLIP, BG, BG_CLIP.
-     // Каждый слой копируется в две части — обычные объекты, затем clipping
-     // group для объектов вне артборда (см. copyLayerItems). Так как каждый
-     // вызов добавляет в "спину" (PLACEATEND), итоговый порядок совпадает с
-     // нужным: FG выше всего, BG_CLIP — самый нижний.
-     var exportOrder = [
-       { layer: fgLayer, items: fgItems, clip: "FG_CLIP" },
-       { layer: plLayer, items: plItems, clip: "ART_CLIP" },
-       { layer: bgLayer, items: bgItems, clip: "BG_CLIP" },
-     ];
-     for (var li = 0; li < exportOrder.length; li++) {
-       var ord = exportOrder[li];
-       if (ord.layer && ord.items.length > 0) {
-         try {
-           copyLayerItems(
-             ord.items,
-             exportLayer,
-             abRect,
-             scale,
-             exportWidth,
-             exportHeight,
-             ord.clip,
-           );
-         } catch (e) {
-           throw e;
-         }
-       }
-     }
+      // Собираем экспортный слой в ФИКСИРОВАННОМ порядке (сверху вниз панели
+      // Layers): FG, FG_CLIP, PLACEHOLDERS, ART_CLIP, BG_CLIP, BG.
+      // Каждый слой копируется в две части — обычные объекты, затем clipping
+      // group для объектов вне артборда (см. copyLayerItems). Для BG_CLIP
+      // используется параметр clipAtTop: обтравочная маска оказывается
+      // над обычными объектами BG.
+      var exportOrder = [
+        { layer: fgLayer, items: fgItems, clip: "FG_CLIP", clipAtTop: false },
+        { layer: plLayer, items: plItems, clip: "ART_CLIP", clipAtTop: false },
+        { layer: bgLayer, items: bgItems, clip: "BG_CLIP", clipAtTop: true },
+      ];
+      for (var li = 0; li < exportOrder.length; li++) {
+        var ord = exportOrder[li];
+        if (ord.layer && ord.items.length > 0) {
+          try {
+            copyLayerItems(
+              ord.items,
+              exportLayer,
+              abRect,
+              scale,
+              exportWidth,
+              exportHeight,
+              ord.clip,
+              ord.clipAtTop,
+            );
+          } catch (e) {
+            throw e;
+          }
+        }
+      }
 
      try {
        expandAllEffects();
@@ -1841,6 +1847,9 @@ function buildStockCsv(
     var cleanKeywords = [];
     for (var ki = 0; ki < kw.length; ki++) {
       cleanKeywords.push(disambiguateCyrillic(kw[ki]));
+    }
+    if (cleanKeywords.length > 50) {
+      cleanKeywords = cleanKeywords.slice(0, 50);
     }
 
     var montageCategory = abMeta.shutterstockCategory || "";
