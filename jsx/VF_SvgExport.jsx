@@ -74,6 +74,9 @@ function exportSelectedArtworkAsSvg() {
     var b = dup.visibleBounds; // [left, top, right, bottom]
     tempDoc.artboards[0].artboardRect = [b[0], b[1], b[2], b[3]];
 
+    // Ensure nothing is locked in the exported SVG.
+    unlockAllInDoc(tempDoc);
+
     // 4) Export the temp document as SVG using Illustrator's own exporter.
     svgFile = new File(
       Folder.temp + "/vf_temp_artwork_" + svgTempName() + ".svg",

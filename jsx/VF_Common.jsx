@@ -80,54 +80,15 @@ function vfResult() {
 }
 
 // ---- Generate audit logging (temporary, for diagnosing source corruption) ----
-// Writes a line to gen_debug.log next to the extension. Traces the clipping
-// mask creation path so we can confirm whether `copy` stays a GroupItem after
-// compoundPath and is then passed to makeMask (the suspected corruption cause).
+// DISABLED
 var _genLogPath = null;
-function genLog(msg) {
-  try {
-    if (_genLogPath === null) {
-      _genLogPath = File($.fileName).parent + "/gen_debug.log";
-    }
-    var f = new File(_genLogPath);
-    // "e" = edit mode: opens the file WITHOUT truncating it. We then seek to
-    // the end (mode 2 = SEEK_END) so every call appends. Using open("a") alone
-    // was observed to TRUNCATE the file on this Illustrator build, leaving only
-    // the last line in the log — which is exactly the symptom reported.
-    if (f.open("e")) {
-      f.seek(0, 2);
-      f.writeln("[" + (new Date()).toLocaleTimeString() + "] " + msg);
-      f.close();
-    }
-  } catch (e) {}
-}
+function genLog(msg) {}
 
 // ---- Progress reporting ----
-// Writes the latest progress message to a separate file that the CEP panel
-// polls during long operations. The file is overwritten (not appended) so
-// the panel always sees the current status.
+// DISABLED
 var _progressPath = null;
-function progressLog(msg) {
-  try {
-    if (_progressPath === null) {
-      _progressPath = File($.fileName).parent + "/export_progress.txt";
-    }
-    var f = new File(_progressPath);
-    f.open("w");
-    f.writeln(msg || "");
-    f.close();
-  } catch (e) {}
-}
-function clearProgress() {
-  try {
-    if (_progressPath === null) {
-      _progressPath = File($.fileName).parent + "/export_progress.txt";
-    }
-    var f = new File(_progressPath);
-    f.open("w");
-    f.close();
-  } catch (e) {}
-}
+function progressLog(msg) {}
+function clearProgress() {}
 
 // Snapshot of the current app.selection: count + typename of each item.
 function _selState(label) {
@@ -809,6 +770,31 @@ function getLayer(doc, name) {
     return doc.layers.getByName(name);
   } catch (e) {
     return null;
+  }
+}
+
+function unlockAllInDoc(doc) {
+  if (!doc) return;
+  for (var i = 0; i < doc.layers.length; i++) {
+    var layer = doc.layers[i];
+    try { layer.locked = false; } catch (e) {}
+    unlockContainer(layer);
+  }
+}
+
+function unlockContainer(container) {
+  if (!container) return;
+  var items = container.pageItems || [];
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i];
+    try { item.locked = false; } catch (e) {}
+    if (item.typename === "GroupItem") {
+      unlockContainer(item);
+    }
+  }
+  var groups = container.groupItems || [];
+  for (var j = 0; j < groups.length; j++) {
+    unlockContainer(groups[j]);
   }
 }
 

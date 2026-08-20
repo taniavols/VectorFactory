@@ -902,16 +902,48 @@
     stopArtworkPolling();
     if (pollingSuspended) return; // watchdog will restart us after export
     awPoll = setInterval(function () {
-      // Don't reload while a debounced save is still pending (the user is
-      // actively typing). The pending timer already protects against
-      // overwriting in-progress text, so we do NOT also block on input focus
-      // — otherwise, after typing and then selecting another object in
-      // Illustrator (focus stays on the panel input), the refresh would be
-      // skipped forever and the panel would not switch to the new object.
-      if (awSaveTimer || setSaveTimer) return;
-      refreshArtworkMeta();
-      // Keep the active Set's fields in sync.
-      if (currentSetId) refreshSetMeta();
+      // Selection change takes PRIORITY over a pending save and over HTML
+      // field focus. We first ask Illustrator which object is selected NOW and
+      // compare its VF_ID with awCurrentVfid (the object whose data is loaded
+      // in the fields). This detection runs BEFORE any pending-save guard, so
+      // a pending debounced save can never block discovering a new selection.
+      evalJsx(
+        ["VF_Common.jsx", "VF_ArtworkMeta.jsx"],
+        "getSelectedArtworkMeta()",
+        function (result) {
+          var curVfid = "";
+          try {
+            var st = JSON.parse(result);
+            curVfid = (st && st.vfid) || "";
+          } catch (e) {}
+
+          // Selection changed: cancel any pending save that belongs to the old
+          // object (its data must never be written into the new selection),
+          // update the tracked VF_ID, and force-reload the new object — this
+          // overwrites the fields even if an HTML input still has focus / a
+          // word is selected inside it.
+          if (curVfid !== awCurrentVfid) {
+            if (awSaveTimer) {
+              clearTimeout(awSaveTimer);
+              awSaveTimer = null;
+            }
+            if (setSaveTimer) {
+              clearTimeout(setSaveTimer);
+              setSaveTimer = null;
+            }
+            awCurrentVfid = curVfid;
+            refreshArtworkMeta(true);
+            if (currentSetId) refreshSetMeta();
+            return;
+          }
+
+          // Same object: respect an in-progress edit / pending save and do NOT
+          // overwrite the fields from Illustrator until the save completes.
+          if (awSaveTimer || setSaveTimer) return;
+          refreshArtworkMeta(false);
+          if (currentSetId) refreshSetMeta();
+        },
+      );
     }, 300);
   }
 
@@ -978,7 +1010,7 @@
   // from THIS result (which we already fetch reliably); getSelectionPanelMode()
   // is consulted only to upgrade to "artboard" when the selection lies inside
   // the active artboard. Any failure falls back to the element-based mode.
-  function refreshArtworkMeta() {
+  function refreshArtworkMeta(force) {
     evalJsx(
       ["VF_Common.jsx", "VF_ArtworkMeta.jsx"],
       "getSelectedArtworkMeta()",
@@ -986,11 +1018,24 @@
         var st;
         try {
           st = JSON.parse(result);
-        } catch (e) {
-          return;
-        }
-        // Determine the element-based mode from this result.
-        var elementMode = "none";
+          } catch (e) {
+            return;
+          }
+          // Track the selection's VF_ID and cancel any pending save that still
+          // belongs to a previously-shown object. Once the selection changes,
+          // the old object's pending edits must never be written into the new
+          // selection — the poller reloads the new object's metadata instead.
+          var newVfid = st.has ? (st.vfid || "") : "";
+          if (newVfid !== awCurrentVfid) {
+            if (awSaveTimer) {
+              clearTimeout(awSaveTimer);
+              awSaveTimer = null;
+            }
+          }
+          awCurrentVfid = newVfid;
+
+          // Determine the element-based mode from this result.
+          var elementMode = "none";
         if (st.has) {
           elementMode = "single";
         } else if (st.reason === "many selected") {
@@ -1070,16 +1115,21 @@
         ) {
           aiFilledKey = "";
         }
+        // On a forced reload (selection just changed) we ignore both the
+        // AI-fill guard and the HTML focus guard, so the new object's data
+        // replaces whatever was in the fields — even if focus is still inside
+        // an input with selected text (e.g. a highlighted word in Keywords).
+        if (force) aiFilledKey = "";
         var aiSkipEl = aiFilledKey === "el:" + st.vfid;
         if (!aiSkipEl) {
           var awNameEl = document.getElementById("awName");
           var awKwEl = document.getElementById("awKeywords");
           var awCatEl = document.getElementById("awCategory");
-          if (awNameEl && document.activeElement !== awNameEl)
+          if (awNameEl && (force || document.activeElement !== awNameEl))
             awNameEl.value = st.objectName || "";
-          if (awKwEl && document.activeElement !== awKwEl)
+          if (awKwEl && (force || document.activeElement !== awKwEl))
             awKwEl.value = (st.keywords || []).join(", ");
-          if (awCatEl && document.activeElement !== awCatEl)
+          if (awCatEl && (force || document.activeElement !== awCatEl))
             awCatEl.value = st.shutterstockCategory || "";
         }
         // Warn if the selected item looks like the background (a rectangle
@@ -1181,8 +1231,17 @@
 
   // Persist the current field values for the selected artwork via
   // setSelectedArtworkMeta() (which assigns a VF_ID if missing).
+  // CRITICAL: the fields may still represent a different object than the one
+  // currently selected in Illustrator (e.g. the user highlighted text in the
+  // field and then clicked another object on the canvas, firing this save
+  // while the selection already switched). We must never write the data that
+  // was loaded for VF_ID=A into VF_ID=B, so we confirm the CURRENT selection's
+  // VF_ID matches the object these fields belong to before saving.
   function saveArtworkMetaNow() {
     if (!awHasSelection) return;
+    // The object these field values belong to.
+    var editingVfid = awCurrentVfid;
+    // Read field values synchronously, before any async call can alter them.
     var name = document.getElementById("awName").value;
     var kwText = document.getElementById("awKeywords").value;
     var category = document.getElementById("awCategory").value || "";
@@ -1197,23 +1256,64 @@
       kwParts.push('"' + jsxString(t) + '"');
     }
     var kwJson = "[" + kwParts.join(",") + "]";
+
+    // Ask Illustrator which object is selected right NOW, and only save if it
+    // is the same object whose metadata is loaded in the fields.
     evalJsx(
       ["VF_Common.jsx", "VF_ArtworkMeta.jsx"],
-      'setSelectedArtworkMeta("' +
-        jsxString(name) +
-        '",' +
-        kwJson +
-        ',"' +
-        jsxString(category) +
-        '")',
+      "getSelectedArtworkMeta()",
       function (result) {
-        if (result) {
-          try {
-            var p = JSON.parse(result);
-            if (p.errors && p.errors.length > 0) showResult(result);
-          } catch (e) {}
+        var curVfid = "";
+        var curHas = false;
+        var curReason = "";
+        try {
+          var st = JSON.parse(result);
+          curVfid = (st && st.vfid) || "";
+          curHas = !!(st && st.has);
+          curReason = (st && st.reason) || "";
+        } catch (e) {}
+        var allow = curVfid === editingVfid;
+        // New-artwork first save: no VF_ID assigned yet, but a single new
+        // object IS selected (not many / nothing). Allow it so the metadata is
+        // created for that object instead of being dropped.
+        if (
+          !allow &&
+          editingVfid === "" &&
+          !curHas &&
+          curReason !== "many selected" &&
+          curReason !== "nothing selected"
+        ) {
+          allow = true;
         }
-        flashAwStatus("Saved");
+        if (!allow) {
+          // Selection changed since the fields were loaded: do NOT write this
+          // object's data into a different one. Cancel any lingering timer and
+          // let the poller load the new object's metadata.
+          if (awSaveTimer) {
+            clearTimeout(awSaveTimer);
+            awSaveTimer = null;
+          }
+          return;
+        }
+        evalJsx(
+          ["VF_Common.jsx", "VF_ArtworkMeta.jsx"],
+          'setSelectedArtworkMeta("' +
+            jsxString(name) +
+            '",' +
+            kwJson +
+            ',"' +
+            jsxString(category) +
+            '")',
+          function (result) {
+            if (result) {
+              try {
+                var p = JSON.parse(result);
+                if (p.errors && p.errors.length > 0) showResult(result);
+              } catch (e) {}
+            }
+            flashAwStatus("Saved");
+          },
+        );
       },
     );
   }
